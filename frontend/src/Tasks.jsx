@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from './api';
-import { FaCalendarAlt, FaListUl, FaPlus, FaArrowLeft, FaRegEdit, FaTrashAlt, FaHistory } from 'react-icons/fa';
+import { FaCalendarAlt, FaListUl, FaPlus, FaArrowLeft, FaRegEdit, FaTrashAlt, FaColumns } from 'react-icons/fa';
 import CalendarView from './CalendarView';
 
 const EMPTY_TASK = { title: '', description: '', priority: 'Medium', status: 'Todo', due_date: '' };
@@ -27,7 +27,7 @@ function Tasks({ token }) {
   const [totalPages, setTotalPages] = useState(1);
   const [page, setPage] = useState(1);
 
-  // View & Calendar
+  // View modes: 'list', 'board', or 'calendar'
   const [viewMode, setViewMode] = useState('list');
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
@@ -37,7 +37,7 @@ function Tasks({ token }) {
   const [priorityFilter, setPriorityFilter] = useState('');
   const [sort, setSort] = useState('');
 
-  // Form
+  // Form states
   const [form, setForm] = useState(EMPTY_TASK);
   const [editing, setEditing] = useState(null);
   const [showForm, setShowForm] = useState(false);
@@ -51,7 +51,8 @@ function Tasks({ token }) {
   const [recurrenceDays, setRecurrenceDays] = useState([]);
 
   const loadTasks = useCallback(() => {
-    const limit = viewMode === 'calendar' ? 500 : 10;
+    // If we are in board or calendar view, pull a high limit so we can show everything across statuses/days
+    const limit = viewMode !== 'list' ? 500 : 10;
     const params = new URLSearchParams({ page, limit });
     if (search) params.set('search', search);
     if (statusFilter) params.set('status', statusFilter);
@@ -70,6 +71,56 @@ function Tasks({ token }) {
   }, [projectId, token, page, search, statusFilter, priorityFilter, sort, viewMode]);
 
   useEffect(() => { loadTasks(); }, [loadTasks]);
+
+  // OPTIMISTIC UPDATE: Instant delete
+  const handleDelete = async (id) => {
+   
+    // if (!window.confirm("Are you sure you want to delete this task?")) return;
+
+    const previousTasks = [...tasks];
+    setTasks((prev) => prev.filter((t) => t.id !== id));
+    setTotal((prev) => Math.max(0, prev - 1));
+
+    try {
+      await api(`/api/tasks/${id}`, { method: 'DELETE' }, token);
+    } catch (err) {
+      setError(`Failed to delete task: ${err.message}`);
+      setTasks(previousTasks);
+      setTotal(previousTasks.length);
+    }
+  };
+
+  // KANBAN: Handle when a card is dragged
+  const handleDragStart = (e, taskId) => {
+    e.dataTransfer.setData('text/plain', taskId);
+  };
+
+  // KANBAN: Handle drop on a status column (Optimistic State Update)
+  const handleDrop = async (e, newStatus) => {
+    e.preventDefault();
+    const taskId = e.dataTransfer.getData('text/plain');
+    const taskToUpdate = tasks.find(t => t.id.toString() === taskId);
+    if (!taskToUpdate || taskToUpdate.status === newStatus) return;
+
+    const previousTasks = [...tasks];
+
+    // Eagerly update locally
+    setTasks(prev => prev.map(t => t.id.toString() === taskId ? { ...t, status: newStatus } : t));
+
+    try {
+      await api(`/api/tasks/${taskId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ ...taskToUpdate, status: newStatus })
+      }, token);
+    } catch (err) {
+      setError(`Failed to move task: ${err.message}`);
+      setTasks(previousTasks); // rollback
+    }
+  };
+
+  const allowDrop = (e) => {
+    e.preventDefault();
+  };
 
   const openCreate = () => {
     setEditing(null);
@@ -145,16 +196,6 @@ function Tasks({ token }) {
     setLoading(false);
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this task?")) return;
-    try {
-      await api(`/api/tasks/${id}`, { method: 'DELETE' }, token);
-      loadTasks();
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
   const isOverdue = (task) =>
     task.due_date &&
     task.status !== 'Completed' &&
@@ -178,18 +219,27 @@ function Tasks({ token }) {
         </div>
         
         <div className="flex gap-3">
+          {/* Enhanced Navigation Segment Switcher */}
           <div className="bg-[#1e1e24] p-1 rounded-lg flex gap-1 border border-[#2d2d38]">
             <button 
               onClick={() => { setViewMode('list'); setPage(1); }} 
-              className={`flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all ${
                 viewMode === 'list' ? 'bg-[#2a2a35] text-white' : 'text-[#a0a0b2] hover:text-[#f3f3f5]'
               }`}
             >
               <FaListUl /> List
             </button>
             <button 
+              onClick={() => { setViewMode('board'); setPage(1); }} 
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                viewMode === 'board' ? 'bg-[#2a2a35] text-white' : 'text-[#a0a0b2] hover:text-[#f3f3f5]'
+              }`}
+            >
+              <FaColumns /> Board
+            </button>
+            <button 
               onClick={() => { setViewMode('calendar'); setPage(1); }} 
-              className={`flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all ${
                 viewMode === 'calendar' ? 'bg-[#2a2a35] text-white' : 'text-[#a0a0b2] hover:text-[#f3f3f5]'
               }`}
             >
@@ -222,7 +272,7 @@ function Tasks({ token }) {
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
           <select
-            className="bg-[#2a2a35] border border-[#3e3e4f] rounded-lg p-2.5 text-sm text-[#f3f3f5] focus:outline-none focus:border-[#7b68ee] focus:ring-1 focus:ring-[#7b68ee]"
+            className="bg-[#2a2a35] border border-[#3e3e4f] rounded-lg p-2.5 text-sm text-[#f3f3f5] focus:outline-none focus:border-[#7b68ee]"
             value={statusFilter}
             onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
           >
@@ -232,9 +282,9 @@ function Tasks({ token }) {
             <option value="Completed">Completed</option>
           </select>
           <select
-            className="bg-[#2a2a35] border border-[#3e3e4f] rounded-lg p-2.5 text-sm text-[#f3f3f5] focus:outline-none focus:border-[#7b68ee] focus:ring-1 focus:ring-[#7b68ee]"
+            className="bg-[#2a2a35] border border-[#3e3e4f] rounded-lg p-2.5 text-sm text-[#f3f3f5] focus:outline-none focus:border-[#7b68ee]"
             value={priorityFilter}
-            onChange={(e) => { setPriorityFilter(e.target.value); setPage(1); }}
+            onChange={(e) => { setPage(1); setPriorityFilter(e.target.value); }}
           >
             <option value="">All Priorities</option>
             <option value="Low">Low</option>
@@ -242,7 +292,7 @@ function Tasks({ token }) {
             <option value="High">High</option>
           </select>
           <select
-            className="bg-[#2a2a35] border border-[#3e3e4f] rounded-lg p-2.5 text-sm text-[#f3f3f5] focus:outline-none focus:border-[#7b68ee] focus:ring-1 focus:ring-[#7b68ee]"
+            className="bg-[#2a2a35] border border-[#3e3e4f] rounded-lg p-2.5 text-sm text-[#f3f3f5] focus:outline-none focus:border-[#7b68ee]"
             value={sort}
             onChange={(e) => { setSort(e.target.value); setPage(1); }}
           >
@@ -252,12 +302,89 @@ function Tasks({ token }) {
         </div>
       )}
 
-      {/* Content Rendering */}
+      {/* Main Views Container */}
       {viewMode === 'calendar' ? (
         <div className="bg-[#1e1e24] border border-[#2d2d38] rounded-2xl p-6">
           <CalendarView tasks={tasks} currentMonth={currentMonth} setCurrentMonth={setCurrentMonth} onEdit={openEdit} onDelete={handleDelete} />
         </div>
+      ) : viewMode === 'board' ? (
+        /* KANBAN BOARD VIEW */
+        <div className="grid md:grid-cols-3 gap-5 items-start">
+          {['Todo', 'In Progress', 'Completed'].map((columnStatus) => {
+            const columnTasks = tasks.filter((t) => t.status === columnStatus);
+            return (
+              <div 
+                key={columnStatus}
+                onDragOver={allowDrop}
+                onDrop={(e) => handleDrop(e, columnStatus)}
+                className="bg-[#1e1e24] border border-[#2d2d38] rounded-xl p-4 flex flex-col min-h-[500px]"
+              >
+                {/* Column Header */}
+                <div className="flex justify-between items-center mb-4 pb-2 border-b border-[#2d2d38]/60">
+                  <span className="font-bold text-sm tracking-wide uppercase text-[#a0a0b2] flex items-center gap-2">
+                    <span className={`w-2.5 h-2.5 rounded-full ${
+                      columnStatus === 'Todo' ? 'bg-[#3498db]' : columnStatus === 'In Progress' ? 'bg-[#e67e22]' : 'bg-[#2ecc71]'
+                    }`} />
+                    {columnStatus === 'Todo' ? 'To Do' : columnStatus}
+                  </span>
+                  <span className="text-xs font-semibold text-[#7c7c90] bg-[#2a2a35] px-2 py-0.5 rounded-md">
+                    {columnTasks.length}
+                  </span>
+                </div>
+
+                {/* Column Body Cards */}
+                <div className="space-y-3 flex-1 overflow-y-auto">
+                  {columnTasks.map((t) => (
+                    <div
+                      key={t.id}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, t.id)}
+                      className={`bg-[#111115] border rounded-xl p-4 cursor-grab active:cursor-grabbing hover:border-[#3e3e4f] transition-all relative ${
+                        isOverdue(t) ? 'border-[#e74c3c]/30' : 'border-[#2d2d38]'
+                      }`}
+                    >
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-start gap-2">
+                          <h3 className="font-bold text-sm text-[#f3f3f5] line-clamp-2">{t.title}</h3>
+                        </div>
+                        
+                        {t.description && <p className="text-xs text-[#a0a0b2] line-clamp-2">{t.description}</p>}
+
+                        <div className="flex items-center justify-between pt-2">
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${PRIORITY_COLORS[t.priority]}`}>
+                            {t.priority}
+                          </span>
+                          
+                          {t.due_date && (
+                            <span className="text-[10px] text-[#7c7c90] flex items-center gap-1 font-semibold">
+                              <FaCalendarAlt size={10} />
+                              {new Date(t.due_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Card Action Buttons overlay */}
+                      <div className="flex gap-1.5 justify-end border-t border-[#2d2d38] mt-3 pt-2.5">
+                        <button onClick={() => openEdit(t)} className="text-[10px] font-bold text-[#a0a0b2] hover:text-[#7b68ee]">Edit</button>
+                        <span className="text-[#2d2d38] text-xs">|</span>
+                        <button onClick={() => handleDelete(t.id)} className="text-[10px] font-bold text-[#e74c3c] hover:text-[#ff6b6b]">Delete</button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {columnTasks.length === 0 && (
+                    <div className="text-center py-10 border border-[#2d2d38]/50 border-dashed rounded-xl">
+                      <p className="text-xs text-[#7c7c90]">Drop tasks here</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       ) : (
+        /* STANDARD LIST VIEW */
         <>
           {tasks.length === 0 ? (
             <div className="text-center py-16 bg-[#1e1e24]/30 border border-[#2d2d38] rounded-xl border-dashed">
