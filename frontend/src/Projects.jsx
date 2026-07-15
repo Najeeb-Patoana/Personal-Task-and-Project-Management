@@ -52,7 +52,6 @@ function Projects({ token }) {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this project and all its tasks?')) return;
     try {
       await api(`/api/projects/${id}`, { method: 'DELETE' }, token);
       loadProjects();

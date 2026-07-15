@@ -143,9 +143,13 @@ router.get('/api/projects/:projectId/tasks', auth, async (req, res) => {
   if (status)   query = query.eq('status', status);
   if (priority) query = query.eq('priority', priority);
 
-  query = sort === 'due_date'
-    ? query.order('due_date', { ascending: true, nullsFirst: false })
-    : query.order('created_at', { ascending: false });
+  if (sort === 'due_date' || !sort) {
+    query = query.order('due_date', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true });
+  } else if (sort === 'created_desc') {
+    query = query.order('created_at', { ascending: false });
+  } else {
+    query = query.order('due_date', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true });
+  }
 
   query = query.range(from, from + limitNum - 1);
 
@@ -177,6 +181,27 @@ router.post('/api/projects/:projectId/tasks', auth, async (req, res) => {
     })
     .select()
     .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(201).json(data);
+});
+
+router.post('/api/projects/:projectId/tasks/bulk', auth, async (req, res) => {
+  const { tasks } = req.body;
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    return res.status(400).json({ error: 'An array of tasks is required' });
+  }
+
+  const tasksToInsert = tasks.map(t => ({
+    project_id: req.params.projectId,
+    user_id: req.user.id,
+    title: t.title,
+    description: t.description,
+    priority: t.priority || 'Medium',
+    status: t.status || 'Todo',
+    due_date: t.due_date || null,
+  }));
+
+  const { data, error } = await supabase.from('tasks').insert(tasksToInsert).select();
   if (error) return res.status(500).json({ error: error.message });
   res.status(201).json(data);
 });
