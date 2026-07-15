@@ -320,7 +320,7 @@ function Tasks({ token }) {
                     id="task-title"
                     required
                     className="border border-gray-300 rounded-lg w-full p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                    placeholder="E.g., Go to the gym"
+                    placeholder=""
                     value={form.title}
                     onChange={(e) => setForm({ ...form, title: e.target.value })}
                   />
