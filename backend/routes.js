@@ -127,11 +127,53 @@ router.delete('/api/projects/:id', auth, async (req, res) => {
   res.json({ message: 'Project deleted successfully' });
 });
 
+// router.get('/api/projects/:projectId/tasks', auth, async (req, res) => {
+//   const { search, status, priority, sort, page = 1, limit = 10 } = req.query;
+//   const pageNum = parseInt(page);
+//   const limitNum = parseInt(limit);
+//   const from = (pageNum - 1) * limitNum;
+
+//   let query = supabase
+//     .from('tasks')
+//     .select('*', { count: 'exact' })
+//     .eq('project_id', req.params.projectId)
+//     .eq('user_id', req.user.id);
+
+//   if (search)   query = query.ilike('title', `%${search}%`);
+//   if (status)   query = query.eq('status', status);
+//   if (priority) query = query.eq('priority', priority);
+
+//   if (sort === 'due_date' || !sort) {
+//     query = query.order('due_date', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true });
+//   } else if (sort === 'created_desc') {
+//     query = query.order('created_at', { ascending: false });
+//   } else {
+//     query = query.order('due_date', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true });
+//   }
+
+//   query = query.range(from, from + limitNum - 1);
+
+//   const { data, error, count } = await query;
+//   if (error) return res.status(500).json({ error: error.message });
+
+//   res.json({
+//     tasks: data,
+//     total: count,
+//     page: pageNum,
+//     limit: limitNum,
+//     totalPages: Math.ceil(count / limitNum),
+//   });
+// });
 router.get('/api/projects/:projectId/tasks', auth, async (req, res) => {
+  console.time('Total Request');
+
   const { search, status, priority, sort, page = 1, limit = 10 } = req.query;
+
   const pageNum = parseInt(page);
   const limitNum = parseInt(limit);
   const from = (pageNum - 1) * limitNum;
+
+  console.time('Build Query');
 
   let query = supabase
     .from('tasks')
@@ -139,22 +181,46 @@ router.get('/api/projects/:projectId/tasks', auth, async (req, res) => {
     .eq('project_id', req.params.projectId)
     .eq('user_id', req.user.id);
 
-  if (search)   query = query.ilike('title', `%${search}%`);
-  if (status)   query = query.eq('status', status);
-  if (priority) query = query.eq('priority', priority);
+  if (search) {
+    query = query.ilike('title', `%${search}%`);
+  }
+
+  if (status) {
+    query = query.eq('status', status);
+  }
+
+  if (priority) {
+    query = query.eq('priority', priority);
+  }
 
   if (sort === 'due_date' || !sort) {
-    query = query.order('due_date', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true });
+    query = query
+      .order('due_date', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true });
   } else if (sort === 'created_desc') {
     query = query.order('created_at', { ascending: false });
   } else {
-    query = query.order('due_date', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true });
+    query = query
+      .order('due_date', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true });
   }
 
   query = query.range(from, from + limitNum - 1);
 
+  console.timeEnd('Build Query');
+
+  console.time('Database Query');
+
   const { data, error, count } = await query;
-  if (error) return res.status(500).json({ error: error.message });
+
+  console.timeEnd('Database Query');
+
+  if (error) {
+    console.timeEnd('Total Request');
+    return res.status(500).json({ error: error.message });
+  }
+
+  console.time('Response');
 
   res.json({
     tasks: data,
@@ -163,8 +229,10 @@ router.get('/api/projects/:projectId/tasks', auth, async (req, res) => {
     limit: limitNum,
     totalPages: Math.ceil(count / limitNum),
   });
-});
 
+  console.timeEnd('Response');
+  console.timeEnd('Total Request');
+});
 router.post('/api/projects/:projectId/tasks', auth, async (req, res) => {
   const { title, description, priority, status, due_date } = req.body;
   if (!title) return res.status(400).json({ error: 'Task title is required' });
