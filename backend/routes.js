@@ -3,19 +3,43 @@ const { supabase } = require('./db');
 
 const router = express.Router();
 
+// async function auth(req, res, next) {
+//   const header = req.headers.authorization;
+//   if (!header || !header.startsWith('Bearer ')) {
+//     return res.status(401).json({ error: 'Authorization header missing' });
+//   }
+//   const token = header.split(' ')[1];
+//   const { data, error } = await supabase.auth.getUser(token);
+//   if (error || !data.user) return res.status(401).json({ error: 'Invalid or expired token' });
+//   req.user = data.user;
+//   req.token = token;
+//   next();
+// }
 async function auth(req, res, next) {
+  console.time('Auth');
+
   const header = req.headers.authorization;
+
   if (!header || !header.startsWith('Bearer ')) {
+    console.timeEnd('Auth');
     return res.status(401).json({ error: 'Authorization header missing' });
   }
+
   const token = header.split(' ')[1];
+
   const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data.user) return res.status(401).json({ error: 'Invalid or expired token' });
+
+  console.timeEnd('Auth');
+
+  if (error || !data.user) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
   req.user = data.user;
   req.token = token;
+
   next();
 }
-
 
 router.post('/api/auth/register', async (req, res) => {
   const { email, password } = req.body;
