@@ -28,13 +28,11 @@ function Login({ onLogin }) {
       if (!res.ok) throw new Error(data.error);
 
       if (isRegister) {
-        // Registration: no token yet — user must verify email first
         setMessage(data.message || 'Account created! Please check your email to verify your account, then sign in.');
         setIsRegister(false);
         setEmail('');
         setPassword('');
       } else if (data.token) {
-        // Login: session token returned
         if (data.refresh_token) {
           localStorage.setItem('refresh_token', data.refresh_token);
         }
@@ -48,8 +46,6 @@ function Login({ onLogin }) {
 
   const handleGoogle = async () => {
     setError('');
-    // window.location.origin is http://localhost:5173 when running via Vite dev server.
-    // Make sure this URL is listed in Supabase → Authentication → URL Configuration → Redirect URLs.
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: window.location.origin },
@@ -58,63 +54,86 @@ function Login({ onLogin }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
-        <h1 className="text-2xl font-bold text-blue-600 mb-1">TaskManager</h1>
-        <p className="text-gray-500 text-sm mb-6">Personal Project &amp; Task Manager</p>
+    <div className="min-h-screen flex items-center justify-center bg-[#111115] text-[#f3f3f5] px-4 font-sans antialiased">
+      <div className="bg-[#1e1e24] border border-[#2d2d38] p-8 rounded-2xl shadow-2xl w-full max-w-md space-y-6">
+        
+        {/* Branding Logo */}
+        <div className="text-center">
+          <h1 className="text-2xl font-extrabold tracking-tight text-[#7b68ee]">TaskManager</h1>
+          <p className="text-[#a0a0b2] text-xs mt-1 font-medium">Personal Project &amp; Task Workspace</p>
+        </div>
 
-        <h2 className="text-lg font-semibold mb-4">{isRegister ? 'Create Account' : 'Sign In'}</h2>
+        <div className="space-y-1.5 border-b border-[#2d2d38] pb-4">
+          <h2 className="text-lg font-bold text-white">
+            {isRegister ? 'Create Account' : 'Sign In'}
+          </h2>
+          <p className="text-xs text-[#7c7c90]">
+            {isRegister ? 'Get started with your free workspace.' : 'Welcome back! Log in to continue.'}
+          </p>
+        </div>
 
+        {/* Notifications */}
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 rounded p-3 text-sm mb-4">
+          <div className="bg-[#2c1d21] border border-[#e74c3c]/30 text-[#ff8080] rounded-xl p-3.5 text-sm font-medium">
             {error}
           </div>
         )}
         {message && (
-          <div className="bg-green-50 border border-green-200 text-green-700 rounded p-3 text-sm mb-4">
+          <div className="bg-[#192b21] border border-[#2ecc71]/30 text-[#2ecc71] rounded-xl p-3.5 text-sm font-medium">
             {message}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <input
-            id="email"
-            type="email"
-            required
-            className="border border-gray-300 rounded w-full p-2 text-sm focus:outline-none focus:border-blue-400"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <input
-            id="password"
-            type="password"
-            required
-            className="border border-gray-300 rounded w-full p-2 text-sm focus:outline-none focus:border-blue-400"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+        {/* Form elements */}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1">
+            <label className="block text-[10px] font-bold text-[#a0a0b2] tracking-wider uppercase">Email Address</label>
+            <input
+              id="email"
+              type="email"
+              required
+              className="bg-[#2a2a35] border border-[#3e3e4f] rounded-lg w-full p-2.5 text-sm text-[#f3f3f5] placeholder-[#7c7c90] focus:outline-none focus:border-[#7b68ee] focus:ring-1 focus:ring-[#7b68ee] transition-all"
+              placeholder="name@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[10px] font-bold text-[#a0a0b2] tracking-wider uppercase">Password</label>
+            <input
+              id="password"
+              type="password"
+              required
+              className="bg-[#2a2a35] border border-[#3e3e4f] rounded-lg w-full p-2.5 text-sm text-[#f3f3f5] placeholder-[#7c7c90] focus:outline-none focus:border-[#7b68ee] focus:ring-1 focus:ring-[#7b68ee] transition-all"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+
           <button
             id="submit-btn"
             type="submit"
             disabled={loading}
-            className="bg-blue-600 hover:bg-blue-700 text-white w-full p-2 rounded text-sm font-medium disabled:opacity-60"
+            className="bg-[#7b68ee] hover:bg-[#6855df] text-white w-full py-2.5 rounded-lg text-sm font-bold transition-all disabled:opacity-60 shadow-lg shadow-[#7b68ee]/15 mt-2"
           >
             {loading ? 'Please wait...' : isRegister ? 'Register' : 'Login'}
           </button>
         </form>
 
-        <div className="my-4 flex items-center gap-2">
-          <hr className="flex-1 border-gray-200" />
-          <span className="text-gray-400 text-xs">or</span>
-          <hr className="flex-1 border-gray-200" />
+        {/* Custom Divider line */}
+        <div className="flex items-center gap-3 py-1">
+          <hr className="flex-1 border-[#2d2d38]" />
+          <span className="text-[#7c7c90] text-xs font-semibold uppercase tracking-widest">or</span>
+          <hr className="flex-1 border-[#2d2d38]" />
         </div>
 
+        {/* OAuth Buttons */}
         <button
           id="google-btn"
           onClick={handleGoogle}
-          className="border border-gray-300 hover:bg-gray-50 w-full p-2 rounded text-sm flex items-center justify-center gap-2"
+          className="bg-[#2a2a35] hover:bg-[#323241] border border-[#3e3e4f] text-[#f3f3f5] w-full py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2.5 transition-all"
         >
           <svg width="18" height="18" viewBox="0 0 48 48">
             <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
@@ -125,11 +144,12 @@ function Login({ onLogin }) {
           Continue with Google
         </button>
 
-        <p className="mt-4 text-center text-sm text-gray-500">
+        {/* Toggle between Register/Login */}
+        <p className="text-center text-xs text-[#a0a0b2] font-medium pt-2">
           {isRegister ? 'Already have an account?' : "Don't have an account?"}
           <button
             onClick={() => { setIsRegister(!isRegister); setError(''); setMessage(''); }}
-            className="text-blue-600 ml-1 hover:underline"
+            className="text-[#7b68ee] ml-1.5 font-bold hover:underline hover:text-[#6855df] transition-colors"
           >
             {isRegister ? 'Sign In' : 'Register'}
           </button>

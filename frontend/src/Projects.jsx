@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from './api';
+import { FaFolderPlus, FaRegEdit, FaTrashAlt, FaFolderOpen } from 'react-icons/fa';
 
 const EMPTY = { name: '', description: '', status: 'Active' };
 
 function Projects({ token }) {
   const [projects, setProjects] = useState([]);
   const [form, setForm] = useState(EMPTY);
-  const [editing, setEditing] = useState(null); // project being edited
+  const [editing, setEditing] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -52,6 +53,7 @@ function Projects({ token }) {
   };
 
   const handleDelete = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this project?")) return;
     try {
       await api(`/api/projects/${id}`, { method: 'DELETE' }, token);
       loadProjects();
@@ -61,55 +63,69 @@ function Projects({ token }) {
   };
 
   return (
-    <div>
-      <div className="flex items-center justify-between mt-2 mb-5">
-        <h1 className="text-xl font-bold">Projects</h1>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-[#2d2d38] pb-5">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Projects</h1>
+          <p className="text-sm text-[#a0a0b2] mt-1">Manage and organize your team workspaces.</p>
+        </div>
         <button
-          id="new-project-btn"
           onClick={openCreate}
-          className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700"
+          className="bg-[#7b68ee] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#6855df] transition-all flex items-center gap-2 shadow-lg shadow-[#7b68ee]/15"
         >
-          + New Project
+          <FaFolderPlus className="text-base" /> New Project
         </button>
       </div>
 
-      {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
+      {error && (
+        <div className="bg-[#2c1d21] border border-[#e74c3c]/30 text-[#ff8080] p-4 rounded-xl text-sm font-medium">
+          {error}
+        </div>
+      )}
 
       {/* Project list */}
       {projects.length === 0 ? (
-        <p className="text-gray-400 text-sm">No projects yet. Create one!</p>
+        <div className="text-center py-16 bg-[#1e1e24]/50 border border-[#2d2d38] rounded-xl border-dashed">
+          <p className="text-[#a0a0b2] text-sm">No projects found. Create one to start collaborating!</p>
+        </div>
       ) : (
-        <div className="space-y-3">
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
           {projects.map((p) => (
-            <div key={p.id} className="bg-white border border-gray-200 rounded-lg p-4 flex items-center justify-between">
+            <div key={p.id} className="bg-[#1e1e24] border border-[#2d2d38] rounded-xl p-5 flex flex-col justify-between hover:border-[#3e3e4f] hover:-translate-y-0.5 transition-all duration-200">
               <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-gray-800">{p.name}</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${p.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <span className="font-bold text-lg text-[#f3f3f5] line-clamp-1">{p.name}</span>
+                  <span className={`text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded-full shrink-0 ${
+                    p.status === 'Active' ? 'bg-[#2ecc71]/10 text-[#2ecc71]' : 'bg-[#a0a0b2]/10 text-[#a0a0b2]'
+                  }`}>
                     {p.status}
                   </span>
                 </div>
-                {p.description && <p className="text-sm text-gray-500 mt-1">{p.description}</p>}
-                <p className="text-xs text-gray-400 mt-1">Created {new Date(p.created_at).toLocaleDateString()}</p>
+                {p.description && <p className="text-sm text-[#a0a0b2] mt-2 line-clamp-2">{p.description}</p>}
+                <p className="text-xs text-[#7c7c90] mt-4">Created {new Date(p.created_at).toLocaleDateString()}</p>
               </div>
-              <div className="flex items-center gap-2">
+
+              <div className="flex items-center gap-2 border-t border-[#2d2d38] mt-5 pt-4">
                 <button
                   onClick={() => navigate(`/projects/${p.id}/tasks`)}
-                  className="text-sm text-blue-600 hover:underline"
+                  className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold bg-[#7b68ee]/10 text-[#7b68ee] hover:bg-[#7b68ee]/20 py-2 rounded-lg transition-colors"
                 >
-                  Tasks
+                  <FaFolderOpen /> View Tasks
                 </button>
                 <button
                   onClick={() => openEdit(p)}
-                  className="text-sm text-gray-500 hover:text-gray-800"
+                  className="p-2 text-xs font-medium text-[#a0a0b2] bg-[#2a2a35] hover:text-[#f3f3f5] rounded-lg border border-[#3e3e4f] transition-colors"
+                  title="Edit Project"
                 >
-                  Edit
+                  <FaRegEdit size={14} />
                 </button>
                 <button
                   onClick={() => handleDelete(p.id)}
-                  className="text-sm text-red-500 hover:text-red-700"
+                  className="p-2 text-xs font-medium text-[#e74c3c] bg-[#e74c3c]/10 hover:bg-[#e74c3c] hover:text-white rounded-lg transition-colors"
+                  title="Delete Project"
                 >
-                  Delete
+                  <FaTrashAlt size={14} />
                 </button>
               </div>
             </div>
@@ -117,40 +133,37 @@ function Projects({ token }) {
         </div>
       )}
 
-      {/* Modal */}
+      {/* Modern Dialog Form Overlay */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
-            <h2 className="text-lg font-semibold mb-4">{editing ? 'Edit Project' : 'New Project'}</h2>
-            {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
-            <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1e1e24] border border-[#2d2d38] rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <h2 className="text-xl font-bold mb-4 text-[#f3f3f5]">{editing ? 'Edit Project' : 'New Project'}</h2>
+            
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="text-sm text-gray-600 block mb-1">Name *</label>
+                <label className="text-xs font-bold text-[#a0a0b2] tracking-wider uppercase block mb-1.5">Project Name *</label>
                 <input
-                  id="project-name"
                   required
-                  className="border border-gray-300 rounded w-full p-2 text-sm focus:outline-none focus:border-blue-400"
-                  placeholder="Project name"
+                  className="bg-[#2a2a35] border border-[#3e3e4f] rounded-lg w-full p-2.5 text-sm text-[#f3f3f5] placeholder-[#7c7c90] focus:outline-none focus:border-[#7b68ee] focus:ring-1 focus:ring-[#7b68ee] transition-all"
+                  placeholder="Enter project name"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                 />
               </div>
               <div>
-                <label className="text-sm text-gray-600 block mb-1">Description</label>
+                <label className="text-xs font-bold text-[#a0a0b2] tracking-wider uppercase block mb-1.5">Description</label>
                 <textarea
-                  id="project-description"
-                  className="border border-gray-300 rounded w-full p-2 text-sm focus:outline-none focus:border-blue-400"
-                  placeholder="Optional description"
+                  className="bg-[#2a2a35] border border-[#3e3e4f] rounded-lg w-full p-2.5 text-sm text-[#f3f3f5] placeholder-[#7c7c90] focus:outline-none focus:border-[#7b68ee] focus:ring-1 focus:ring-[#7b68ee] transition-all resize-none"
+                  placeholder="Describe your goals"
                   rows={3}
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                 />
               </div>
               <div>
-                <label className="text-sm text-gray-600 block mb-1">Status</label>
+                <label className="text-xs font-bold text-[#a0a0b2] tracking-wider uppercase block mb-1.5">Status</label>
                 <select
-                  id="project-status"
-                  className="border border-gray-300 rounded w-full p-2 text-sm focus:outline-none focus:border-blue-400"
+                  className="bg-[#2a2a35] border border-[#3e3e4f] rounded-lg w-full p-2.5 text-sm text-[#f3f3f5] focus:outline-none focus:border-[#7b68ee] focus:ring-1 focus:ring-[#7b68ee] transition-all"
                   value={form.status}
                   onChange={(e) => setForm({ ...form, status: e.target.value })}
                 >
@@ -158,21 +171,21 @@ function Projects({ token }) {
                   <option value="Completed">Completed</option>
                 </select>
               </div>
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  id="project-submit"
-                  className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 disabled:opacity-60"
-                >
-                  {loading ? 'Saving...' : editing ? 'Update' : 'Create'}
-                </button>
+
+              <div className="flex gap-3 pt-4 border-t border-[#2d2d38]">
                 <button
                   type="button"
                   onClick={() => setShowForm(false)}
-                  className="border border-gray-300 px-4 py-2 rounded text-sm hover:bg-gray-50"
+                  className="flex-1 bg-[#2a2a35] hover:bg-[#323241] border border-[#3e3e4f] text-[#f3f3f5] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
                 >
                   Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 bg-[#7b68ee] hover:bg-[#6855df] text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-all disabled:opacity-50"
+                >
+                  {loading ? 'Saving...' : editing ? 'Update' : 'Create'}
                 </button>
               </div>
             </form>

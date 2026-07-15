@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Routes, Route, Navigate, Link } from 'react-router-dom';
+import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import supabase from './supabase';
 import { api } from './api';
 import Login from './Login';
@@ -10,7 +10,6 @@ import Profile from './Profile';
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
-
   const ownTokenRef = useRef(localStorage.getItem('token'));
 
   useEffect(() => {
@@ -61,9 +60,11 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    /* Changed bg-gray-50 to ClickUp's dark canvas color: bg-[#111115] */
+    <div className="min-h-screen bg-[#111115] text-[#f3f3f5] font-sans antialiased">
       <Navbar onLogout={handleLogout} />
-      <div className="max-w-5xl mx-auto p-4">
+      
+      <div className="max-w-7xl mx-auto p-6">
         <Routes>
           <Route path="/" element={<Dashboard token={token} />} />
           <Route path="/projects" element={<Projects token={token} />} />
@@ -77,15 +78,37 @@ function App() {
 }
 
 function Navbar({ onLogout }) {
+  const location = useLocation();
+
+  // Helper to highlight the active menu link ClickUp-style
+  const linkClass = (path) => {
+    const isActive = location.pathname === path;
+    return `text-sm font-medium transition-colors duration-150 ${
+      isActive 
+        ? 'text-[#7b68ee]' 
+        : 'text-[#a0a0b2] hover:text-[#f3f3f5]'
+    }`;
+  };
+
   return (
-    <nav className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-      <div className="flex items-center gap-6">
-        <span className="font-bold text-lg text-blue-600">TaskManager</span>
-        <Link to="/" className="text-sm text-gray-600 hover:text-blue-600">Dashboard</Link>
-        <Link to="/projects" className="text-sm text-gray-600 hover:text-blue-600">Projects</Link>
-        <Link to="/profile" className="text-sm text-gray-600 hover:text-blue-600">Profile</Link>
+    /* Changed from bg-white border-gray-200 to dark cool gray and thin slate border */
+    <nav className="bg-[#1e1e24] border-b border-[#2d2d38] px-6 py-4 flex items-center justify-between shadow-sm">
+      <div className="flex items-center gap-8">
+        {/* ClickUp brand accent color (#7b68ee) used for the logo */}
+        <span className="font-extrabold text-lg tracking-tight text-[#7b68ee]">
+          TaskManager
+        </span>
+        <div className="flex items-center gap-6">
+          <Link to="/" className={linkClass('/')}>Dashboard</Link>
+          <Link to="/projects" className={linkClass('/projects')}>Projects</Link>
+          <Link to="/profile" className={linkClass('/profile')}>Profile</Link>
+        </div>
       </div>
-      <button onClick={onLogout} className="text-sm text-red-500 hover:text-red-700">
+      
+      <button 
+        onClick={onLogout} 
+        className="text-sm font-medium text-[#e74c3c] hover:text-[#ff6b6b] transition-colors duration-150"
+      >
         Logout
       </button>
     </nav>

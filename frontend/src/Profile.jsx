@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from './api';
+import { FaUserEdit, FaEnvelope, FaUser } from 'react-icons/fa';
 
 function Profile({ token }) {
   const [profile, setProfile] = useState(null);
@@ -41,81 +42,106 @@ function Profile({ token }) {
   };
 
   return (
-    <div className="max-w-lg mx-auto mt-8">
-      <h1 className="text-xl font-bold mb-6">My Profile</h1>
+    <div className="max-w-xl mx-auto mt-6 space-y-6">
+      
+      {/* Page Header */}
+      <div className="border-b border-[#2d2d38] pb-4">
+        <h1 className="text-2xl font-bold text-white">My Profile</h1>
+        <p className="text-sm text-[#a0a0b2] mt-1">Manage your account credentials and preferences.</p>
+      </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm mb-4">
+        <div className="bg-[#2c1d21] border border-[#e74c3c]/30 text-[#ff8080] p-4 rounded-xl text-sm font-medium transition-all">
           {error}
         </div>
       )}
+      
       {success && (
-        <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg p-3 text-sm mb-4">
+        <div className="bg-[#192b21] border border-[#2ecc71]/30 text-[#2ecc71] p-4 rounded-xl text-sm font-medium transition-all">
           {success}
         </div>
       )}
 
       {!profile ? (
-        <p className="text-gray-400">Loading...</p>
+        <div className="text-center py-12 text-[#a0a0b2] animate-pulse">
+          Loading profile details...
+        </div>
       ) : (
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
-        
-          {/* Edit form */}
-          {editing ? (
-            <form onSubmit={handleSave} className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Display Name
-                </label>
-                <input
-                  id="profile-name"
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="border border-gray-300 rounded-lg w-full px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  placeholder="Enter your name"
-                  autoFocus
-                />
-              </div>
-              <div className="flex gap-2">
+        <div className="bg-[#1e1e24] border border-[#2d2d38] rounded-2xl p-8 shadow-xl">
+          
+          {/* Details / Edit Form Section */}
+          <div className="w-full">
+            {editing ? (
+              <form onSubmit={handleSave} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-[#a0a0b2] tracking-wider uppercase mb-2">
+                    Display Name
+                  </label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-[#7c7c90]">
+                      <FaUser size={14} />
+                    </span>
+                    <input
+                      id="profile-name"
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="bg-[#2a2a35] border border-[#3e3e4f] rounded-lg w-full pl-9 pr-3 py-2.5 text-sm text-[#f3f3f5] placeholder-[#7c7c90] focus:outline-none focus:border-[#7b68ee] focus:ring-1 focus:ring-[#7b68ee] transition-all"
+                      placeholder="Enter your name"
+                      autoFocus
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    id="save-profile-btn"
+                    type="submit"
+                    disabled={loading}
+                    className="flex-1 bg-[#7b68ee] hover:bg-[#6855df] text-white px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-60 transition-colors"
+                  >
+                    {loading ? 'Saving...' : 'Save Changes'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setEditing(false); setName(profile.name || ''); setError(''); }}
+                    className="flex-1 bg-[#2a2a35] hover:bg-[#323241] border border-[#3e3e4f] text-[#f3f3f5] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="space-y-6">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="bg-[#111115]/50 border border-[#2d2d38] p-4 rounded-xl space-y-1">
+                    <p className="text-[10px] font-bold text-[#7c7c90] uppercase tracking-wider flex items-center gap-1.5">
+                      <FaUser className="text-[#a0a0b2]" /> Name
+                    </p>
+                    <p className="text-sm font-semibold text-[#f3f3f5]">
+                      {profile.name || <span className="text-[#7c7c90] italic font-normal">Not set yet</span>}
+                    </p>
+                  </div>
+                  
+                  <div className="bg-[#111115]/50 border border-[#2d2d38] p-4 rounded-xl space-y-1">
+                    <p className="text-[10px] font-bold text-[#7c7c90] uppercase tracking-wider flex items-center gap-1.5">
+                      <FaEnvelope className="text-[#a0a0b2]" /> Email Address
+                    </p>
+                    <p className="text-sm font-semibold text-[#f3f3f5] truncate">{profile.email}</p>
+                  </div>
+                </div>
+
                 <button
-                  id="save-profile-btn"
-                  type="submit"
-                  disabled={loading}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-60 transition-colors"
+                  id="edit-profile-btn"
+                  onClick={() => setEditing(true)}
+                  className="w-full bg-[#7b68ee]/10 text-[#7b68ee] hover:bg-[#7b68ee]/20 py-3 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 border border-[#7b68ee]/20"
                 >
-                  {loading ? 'Saving...' : 'Save'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setEditing(false); setName(profile.name || ''); setError(''); }}
-                  className="border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm transition-colors"
-                >
-                  Cancel
+                  <FaUserEdit size={16} /> Edit Display Name
                 </button>
               </div>
-            </form>
-          ) : (
-            <div className="space-y-3">
-              <div>
-                <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Name</p>
-                <p className="text-sm text-gray-800">
-                  {profile.name || <span className="text-gray-400 italic">Not set</span>}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Email</p>
-                <p className="text-sm text-gray-800">{profile.email}</p>
-              </div>
-              <button
-                id="edit-profile-btn"
-                onClick={() => setEditing(true)}
-                className="mt-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-              >
-                Edit Name
-              </button>
-            </div>
-          )}
+            )}
+          </div>
+
         </div>
       )}
     </div>
