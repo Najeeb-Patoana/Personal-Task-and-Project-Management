@@ -55,7 +55,7 @@ function Projects({ token }) {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this project?")) return;
+    // if (!window.confirm("Are you sure you want to delete this project?")) return;
     try {
       await api(`/api/projects/${id}`, { method: 'DELETE' }, token);
       loadProjects();
