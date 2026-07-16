@@ -52,7 +52,6 @@ function Tasks({ token }) {
   const [recurrenceDays, setRecurrenceDays] = useState([]);
 
   const loadTasks = useCallback(() => {
-    // If we are in board or calendar view, pull a high limit so we can show everything across statuses/days
     const limit = viewMode !== 'list' ? 500 : 10;
     const params = new URLSearchParams({ page, limit });
     if (search) params.set('search', search);
@@ -73,11 +72,7 @@ function Tasks({ token }) {
 
   useEffect(() => { loadTasks(); }, [loadTasks]);
 
-  // OPTIMISTIC UPDATE: Instant delete
   const handleDelete = async (id) => {
-   
-    // if (!window.confirm("Are you sure you want to delete this task?")) return;
-
     const previousTasks = [...tasks];
     setTasks((prev) => prev.filter((t) => t.id !== id));
     setTotal((prev) => Math.max(0, prev - 1));
@@ -91,12 +86,10 @@ function Tasks({ token }) {
     }
   };
 
-  // KANBAN: Handle when a card is dragged
   const handleDragStart = (e, taskId) => {
     e.dataTransfer.setData('text/plain', taskId);
   };
 
-  // KANBAN: Handle drop on a status column (Optimistic State Update)
   const handleDrop = async (e, newStatus) => {
     e.preventDefault();
     const taskId = e.dataTransfer.getData('text/plain');
@@ -104,8 +97,6 @@ function Tasks({ token }) {
     if (!taskToUpdate || taskToUpdate.status === newStatus) return;
 
     const previousTasks = [...tasks];
-
-    // Eagerly update locally
     setTasks(prev => prev.map(t => t.id.toString() === taskId ? { ...t, status: newStatus } : t));
 
     try {
@@ -115,7 +106,7 @@ function Tasks({ token }) {
       }, token);
     } catch (err) {
       setError(`Failed to move task: ${err.message}`);
-      setTasks(previousTasks); // rollback
+      setTasks(previousTasks);
     }
   };
 

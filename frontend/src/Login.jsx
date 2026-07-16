@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import supabase from './supabase';
+import { GoogleLogin } from '@react-oauth/google';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -11,6 +11,7 @@ function Login({ onLogin }) {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Standard Email/Password Login
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -25,17 +26,15 @@ function Login({ onLogin }) {
         body: JSON.stringify({ email, password }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      
+      if (!res.ok) throw new Error(data.error || 'Authentication failed');
 
       if (isRegister) {
-        setMessage(data.message || 'Account created! Please check your email to verify your account, then sign in.');
+        setMessage(data.message || 'Account created! Please sign in.');
         setIsRegister(false);
         setEmail('');
         setPassword('');
       } else if (data.token) {
-        if (data.refresh_token) {
-          localStorage.setItem('refresh_token', data.refresh_token);
-        }
         onLogin(data.token);
       }
     } catch (err) {
@@ -44,20 +43,33 @@ function Login({ onLogin }) {
     setLoading(false);
   };
 
-  const handleGoogle = async () => {
-    setError('');
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: window.location.origin },
-    });
-    if (error) setError(error.message);
+  // Google Login Success Handler
+  const handleGoogleSuccess = async (credentialResponse) => {
+    try {
+      setError('');
+      setLoading(true);
+      const res = await fetch(`${API}/api/auth/google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential: credentialResponse.credential }),
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Google auth failed');
+      
+      if (data.token) {
+        onLogin(data.token);
+      }
+    } catch (err) {
+      setError(err.message);
+      setLoading(false);
+    }
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#111115] text-[#f3f3f5] px-4 font-sans antialiased">
       <div className="bg-[#1e1e24] border border-[#2d2d38] p-8 rounded-2xl shadow-2xl w-full max-w-md space-y-6">
         
-        {/* Branding Logo */}
         <div className="text-center">
           <h1 className="text-2xl font-extrabold tracking-tight text-[#7b68ee]">TaskManager</h1>
           <p className="text-[#a0a0b2] text-xs mt-1 font-medium">Personal Project &amp; Task Workspace</p>
@@ -72,7 +84,6 @@ function Login({ onLogin }) {
           </p>
         </div>
 
-        {/* Notifications */}
         {error && (
           <div className="bg-[#2c1d21] border border-[#e74c3c]/30 text-[#ff8080] rounded-xl p-3.5 text-sm font-medium">
             {error}
@@ -84,7 +95,6 @@ function Login({ onLogin }) {
           </div>
         )}
 
-        {/* Form elements */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1">
             <label className="block text-[10px] font-bold text-[#a0a0b2] tracking-wider uppercase">Email Address</label>
@@ -113,7 +123,6 @@ function Login({ onLogin }) {
           </div>
 
           <button
-            id="submit-btn"
             type="submit"
             disabled={loading}
             className="bg-[#7b68ee] hover:bg-[#6855df] text-white w-full py-2.5 rounded-lg text-sm font-bold transition-all disabled:opacity-60 shadow-lg shadow-[#7b68ee]/15 mt-2"
@@ -122,29 +131,21 @@ function Login({ onLogin }) {
           </button>
         </form>
 
-        {/* Custom Divider line */}
         <div className="flex items-center gap-3 py-1">
           <hr className="flex-1 border-[#2d2d38]" />
           <span className="text-[#7c7c90] text-xs font-semibold uppercase tracking-widest">or</span>
           <hr className="flex-1 border-[#2d2d38]" />
         </div>
 
-        {/* OAuth Buttons */}
-        <button
-          id="google-btn"
-          onClick={handleGoogle}
-          className="bg-[#2a2a35] hover:bg-[#323241] border border-[#3e3e4f] text-[#f3f3f5] w-full py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2.5 transition-all"
-        >
-          <svg width="18" height="18" viewBox="0 0 48 48">
-            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-          </svg>
-          Continue with Google
-        </button>
+        <div className="flex justify-center w-full">
+          <GoogleLogin
+            onSuccess={handleGoogleSuccess}
+            onError={() => setError('Google Login Failed')}
+            theme="filled_black"
+            width="100%"
+          />
+        </div>
 
-        {/* Toggle between Register/Login */}
         <p className="text-center text-xs text-[#a0a0b2] font-medium pt-2">
           {isRegister ? 'Already have an account?' : "Don't have an account?"}
           <button
