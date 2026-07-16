@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from './api';
-import { FaCalendarAlt, FaListUl, FaPlus, FaArrowLeft, FaRegEdit, FaTrashAlt, FaColumns } from 'react-icons/fa';
+import { FaCalendarAlt, FaListUl, FaPlus, FaArrowLeft, FaRegEdit, FaTrashAlt, FaColumns, FaPaperclip } from 'react-icons/fa';
 import CalendarView from './CalendarView';
 
-const EMPTY_TASK = { title: '', description: '', priority: 'Medium', status: 'Todo', due_date: '' };
+const EMPTY_TASK = { title: '', description: '', priority: 'Medium', status: 'Todo', due_date: '', attachment_url: '' };
 
 const PRIORITY_COLORS = {
   Low: 'bg-[#a0a0b2]/10 text-[#a0a0b2]',
@@ -43,6 +43,7 @@ function Tasks({ token }) {
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [attachmentFile, setAttachmentFile] = useState(null);
 
   // Recurring Form
   const [isRecurring, setIsRecurring] = useState(false);
@@ -130,6 +131,7 @@ function Tasks({ token }) {
     setRecurrenceUnit('months');
     setRecurrenceDays([]);
     setError('');
+    setAttachmentFile(null);
     setShowForm(true);
   };
 
@@ -141,8 +143,10 @@ function Tasks({ token }) {
       priority: t.priority,
       status: t.status,
       due_date: t.due_date || '',
+      attachment_url: t.attachment_url || '',
     });
     setError('');
+    setAttachmentFile(null);
     setShowForm(true);
   };
 
@@ -151,8 +155,16 @@ function Tasks({ token }) {
     setLoading(true);
     setError('');
     try {
+      let uploadedUrl = form.attachment_url;
+      if (attachmentFile) {
+        const formData = new FormData();
+        formData.append('file', attachmentFile);
+        const uploadRes = await api('/api/upload', { method: 'POST', body: formData }, token);
+        uploadedUrl = uploadRes.url;
+      }
+
       if (editing) {
-        const body = { ...form, due_date: form.due_date || null };
+        const body = { ...form, due_date: form.due_date || null, attachment_url: uploadedUrl };
         await api(`/api/tasks/${editing.id}`, { method: 'PUT', body: JSON.stringify(body) }, token);
       } else {
         if (isRecurring && form.due_date && recurrenceDays.length > 0) {
@@ -181,12 +193,13 @@ function Tasks({ token }) {
 
           const tasksArray = dates.map(date => ({
             ...form,
-            due_date: date
+            due_date: date,
+            attachment_url: uploadedUrl
           }));
 
           await api(`/api/projects/${projectId}/tasks/bulk`, { method: 'POST', body: JSON.stringify({ tasks: tasksArray }) }, token);
         } else {
-          const body = { ...form, due_date: form.due_date || null };
+          const body = { ...form, due_date: form.due_date || null, attachment_url: uploadedUrl };
           await api(`/api/projects/${projectId}/tasks`, { method: 'POST', body: JSON.stringify(body) }, token);
         }
       }
@@ -357,12 +370,19 @@ function Tasks({ token }) {
                             {t.priority}
                           </span>
                           
-                          {t.due_date && (
-                            <span className="text-[10px] text-[#7c7c90] flex items-center gap-1 font-semibold">
-                              <FaCalendarAlt size={10} />
-                              {new Date(t.due_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {t.attachment_url && (
+                              <a href={t.attachment_url} target="_blank" rel="noreferrer" className="text-[#7b68ee] hover:text-[#f3f3f5] transition-colors" title="View Attachment">
+                                <FaPaperclip size={12} />
+                              </a>
+                            )}
+                            {t.due_date && (
+                              <span className="text-[10px] text-[#7c7c90] flex items-center gap-1 font-semibold">
+                                <FaCalendarAlt size={10} />
+                                {new Date(t.due_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -418,12 +438,19 @@ function Tasks({ token }) {
                     </div>
                     {t.description && <p className="text-sm text-[#a0a0b2] mt-2 line-clamp-2">{t.description}</p>}
                     
-                    {t.due_date && (
-                      <div className="flex items-center gap-1.5 text-xs text-[#7c7c90] mt-3.5 font-medium">
-                        <FaCalendarAlt size={12} className="text-[#a0a0b2]" />
-                        Due {new Date(t.due_date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
-                      </div>
-                    )}
+                    <div className="flex items-center gap-4 mt-3.5">
+                      {t.due_date && (
+                        <div className="flex items-center gap-1.5 text-xs text-[#7c7c90] font-medium">
+                          <FaCalendarAlt size={12} className="text-[#a0a0b2]" />
+                          Due {new Date(t.due_date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                        </div>
+                      )}
+                      {t.attachment_url && (
+                        <a href={t.attachment_url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-xs text-[#7b68ee] hover:text-[#6855df] font-medium transition-colors">
+                          <FaPaperclip size={12} /> View Attachment
+                        </a>
+                      )}
+                    </div>
                   </div>
                   
                   <div className="flex gap-2 shrink-0">
@@ -546,6 +573,23 @@ function Tasks({ token }) {
                     value={form.due_date}
                     onChange={(e) => setForm({ ...form, due_date: e.target.value })}
                   />
+                </div>
+
+                <div className="border-t border-[#2d2d38] pt-4">
+                  <label className="text-xs font-bold text-[#a0a0b2] tracking-wider uppercase block mb-1.5">Attachment (Optional)</label>
+                  <input
+                    type="file"
+                    className="block w-full text-sm text-[#7c7c90] file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[#7b68ee]/10 file:text-[#7b68ee] hover:file:bg-[#7b68ee]/20 transition-all cursor-pointer"
+                    onChange={(e) => setAttachmentFile(e.target.files[0])}
+                  />
+                  {form.attachment_url && !attachmentFile && (
+                    <div className="mt-2 text-xs text-[#a0a0b2]">
+                      Current: <a href={form.attachment_url} target="_blank" rel="noreferrer" className="text-[#7b68ee] hover:underline">View File</a>
+                    </div>
+                  )}
+                  {attachmentFile && (
+                    <div className="mt-2 text-xs text-[#2ecc71]">Selected: {attachmentFile.name}</div>
+                  )}
                 </div>
 
                 {!editing && (

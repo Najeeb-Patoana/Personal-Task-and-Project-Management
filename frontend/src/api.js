@@ -1,7 +1,10 @@
 const API_URL = import.meta.env.VITE_API_URL || '';
 
 export async function api(endpoint, options = {}, token = null) {
-  const headers = { 'Content-Type': 'application/json' };
+  const headers = {};
+  if (!(options.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
   if (token) headers['Authorization'] = `Bearer ${token}`;
   if (options.headers) {
     Object.assign(headers, options.headers);

@@ -1,6 +1,9 @@
 const express = require('express');
 const { supabase } = require('./db');
 const nodemailer = require('nodemailer');
+const multer = require('multer');
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
@@ -113,6 +116,29 @@ router.put('/api/profile', auth, async (req, res) => {
     email: data.user.email,
     name: data.user.user_metadata?.full_name || '',
   });
+});
+
+router.post('/api/upload', auth, upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+  const file = req.file;
+  const fileName = `${req.user.id}/${Date.now()}_${file.originalname.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+
+  const { data, error } = await supabase.storage
+    .from('task-attachments')
+    .upload(fileName, file.buffer, {
+      contentType: file.mimetype,
+    });
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  const { data: publicUrlData } = supabase.storage
+    .from('task-attachments')
+    .getPublicUrl(fileName);
+
+  res.json({ url: publicUrlData.publicUrl });
 });
 
 router.get('/api/projects', auth, async (req, res) => {
@@ -269,7 +295,7 @@ router.get('/api/projects/:projectId/tasks', auth, async (req, res) => {
   console.timeEnd('Total Request');
 });
 router.post('/api/projects/:projectId/tasks', auth, async (req, res) => {
-  const { title, description, priority, status, due_date } = req.body;
+  const { title, description, priority, status, due_date, attachment_url } = req.body;
   if (!title) return res.status(400).json({ error: 'Task title is required' });
 
   const { count, error: countError } = await supabase
@@ -302,6 +328,7 @@ router.post('/api/projects/:projectId/tasks', auth, async (req, res) => {
       priority: priority || 'Medium',
       status: status || 'Todo',
       due_date: due_date || null,
+      attachment_url: attachment_url || null,
     })
     .select()
     .single();
@@ -344,6 +371,7 @@ router.post('/api/projects/:projectId/tasks/bulk', auth, async (req, res) => {
     priority: t.priority || 'Medium',
     status: t.status || 'Todo',
     due_date: t.due_date || null,
+    attachment_url: t.attachment_url || null,
   }));
 
   const { data, error } = await supabase.from('tasks').insert(tasksToInsert).select();
@@ -352,10 +380,10 @@ router.post('/api/projects/:projectId/tasks/bulk', auth, async (req, res) => {
 });
 
 router.put('/api/tasks/:id', auth, async (req, res) => {
-  const { title, description, priority, status, due_date } = req.body;
+  const { title, description, priority, status, due_date, attachment_url } = req.body;
   const { data, error } = await supabase
     .from('tasks')
-    .update({ title, description, priority, status, due_date })
+    .update({ title, description, priority, status, due_date, attachment_url })
     .eq('id', req.params.id)
     .eq('user_id', req.user.id)
     .select()
