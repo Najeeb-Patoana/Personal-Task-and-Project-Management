@@ -1,5 +1,16 @@
 const express = require('express');
 const { supabase } = require('./db');
+const nodemailer = require('nodemailer');
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: process.env.SMTP_PORT,
+  secure: false, // true for 465, false for other ports
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
 
 const router = express.Router();
 
@@ -261,6 +272,27 @@ router.post('/api/projects/:projectId/tasks', auth, async (req, res) => {
   const { title, description, priority, status, due_date } = req.body;
   if (!title) return res.status(400).json({ error: 'Task title is required' });
 
+  const { count, error: countError } = await supabase
+    .from('tasks')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', req.user.id);
+
+  if (countError) return res.status(500).json({ error: countError.message });
+
+  if (count >= 100) {
+    try {
+      await transporter.sendMail({
+        from: process.env.MAIL_FROM || '"Task Manager" <noreply@taskmanager.com>',
+        to: req.user.email,
+        subject: 'Task Limit Exceeded',
+        text: `You currently have ${count} tasks. You can create up to 100 tasks for free. To create more tasks, please upgrade to a paid plan.`,
+      });
+    } catch (emailError) {
+      console.error('Failed to send email:', emailError);
+    }
+    return res.status(403).json({ error: `You already have ${count} tasks. You can create up to 100 tasks for free. To create more, please upgrade to a paid plan.` });
+  }
+
   const { data, error } = await supabase
     .from('tasks')
     .insert({
@@ -281,6 +313,27 @@ router.post('/api/projects/:projectId/tasks/bulk', auth, async (req, res) => {
   const { tasks } = req.body;
   if (!Array.isArray(tasks) || tasks.length === 0) {
     return res.status(400).json({ error: 'An array of tasks is required' });
+  }
+
+  const { count, error: countError } = await supabase
+    .from('tasks')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', req.user.id);
+
+  if (countError) return res.status(500).json({ error: countError.message });
+
+  if (count + tasks.length > 100) {
+    try {
+      await transporter.sendMail({
+        from: process.env.MAIL_FROM || '"Task Manager" <noreply@taskmanager.com>',
+        to: req.user.email,
+        subject: 'Task Limit Exceeded',
+        text: `You currently have ${count} tasks. Adding ${tasks.length} more would exceed your free limit of 100 tasks. To create more tasks, please upgrade to a paid plan.`,
+      });
+    } catch (emailError) {
+      console.error('Failed to send email:', emailError);
+    }
+    return res.status(403).json({ error: `You already have ${count} tasks. Adding ${tasks.length} more would exceed your free limit of 100 tasks. To create more, please upgrade to a paid plan.` });
   }
 
   const tasksToInsert = tasks.map(t => ({

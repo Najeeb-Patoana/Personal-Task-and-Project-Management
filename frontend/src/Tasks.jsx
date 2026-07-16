@@ -129,6 +129,7 @@ function Tasks({ token }) {
     setRecurrenceDuration(1);
     setRecurrenceUnit('months');
     setRecurrenceDays([]);
+    setError('');
     setShowForm(true);
   };
 
@@ -141,6 +142,7 @@ function Tasks({ token }) {
       status: t.status,
       due_date: t.due_date || '',
     });
+    setError('');
     setShowForm(true);
   };
 
@@ -472,13 +474,18 @@ function Tasks({ token }) {
           <div className="bg-[#1e1e24] border border-[#2d2d38] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
             <div className="px-6 py-4 border-b border-[#2d2d38] flex justify-between items-center bg-[#1c1c22]">
               <h2 className="text-xl font-bold text-[#f3f3f5]">{editing ? 'Edit Task' : 'Create New Task'}</h2>
-              <button onClick={() => setShowForm(false)} className="text-[#a0a0b2] hover:text-[#f3f3f5] p-1 rounded-full transition-colors">
+              <button onClick={() => { setShowForm(false); setError(''); }} className="text-[#a0a0b2] hover:text-[#f3f3f5] p-1 rounded-full transition-colors">
                 &times;
               </button>
             </div>
             
             <div className="p-6 overflow-y-auto space-y-4">
               <form id="task-form" onSubmit={handleSubmit} className="space-y-4">
+                {error && (
+                  <div className="bg-[#2c1d21] border border-[#e74c3c]/30 text-[#ff8080] p-3 rounded-lg text-sm font-medium">
+                    {error}
+                  </div>
+                )}
                 <div>
                   <label className="text-xs font-bold text-[#a0a0b2] tracking-wider uppercase block mb-1.5">Task Title *</label>
                   <input
@@ -600,7 +607,7 @@ function Tasks({ token }) {
             <div className="px-6 py-4 border-t border-[#2d2d38] bg-[#1c1c22] flex gap-3 justify-end">
               <button
                 type="button"
-                onClick={() => setShowForm(false)}
+                onClick={() => { setShowForm(false); setError(''); }}
                 className="bg-[#2a2a35] hover:bg-[#323241] border border-[#3e3e4f] text-[#f3f3f5] px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors"
               >
                 Cancel

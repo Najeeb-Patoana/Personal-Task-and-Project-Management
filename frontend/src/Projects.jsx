@@ -25,12 +25,14 @@ function Projects({ token }) {
   const openCreate = () => {
     setEditing(null);
     setForm(EMPTY);
+    setError('');
     setShowForm(true);
   };
 
   const openEdit = (p) => {
     setEditing(p);
     setForm({ name: p.name, description: p.description || '', status: p.status });
+    setError('');
     setShowForm(true);
   };
 
@@ -140,6 +142,11 @@ function Projects({ token }) {
             <h2 className="text-xl font-bold mb-4 text-[#f3f3f5]">{editing ? 'Edit Project' : 'New Project'}</h2>
             
             <form onSubmit={handleSubmit} className="space-y-4">
+              {error && (
+                <div className="bg-[#2c1d21] border border-[#e74c3c]/30 text-[#ff8080] p-3 rounded-lg text-sm font-medium">
+                  {error}
+                </div>
+              )}
               <div>
                 <label className="text-xs font-bold text-[#a0a0b2] tracking-wider uppercase block mb-1.5">Project Name *</label>
                 <input
@@ -175,7 +182,7 @@ function Projects({ token }) {
               <div className="flex gap-3 pt-4 border-t border-[#2d2d38]">
                 <button
                   type="button"
-                  onClick={() => setShowForm(false)}
+                  onClick={() => { setShowForm(false); setError(''); }}
                   className="flex-1 bg-[#2a2a35] hover:bg-[#323241] border border-[#3e3e4f] text-[#f3f3f5] px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors"
                 >
                   Cancel
