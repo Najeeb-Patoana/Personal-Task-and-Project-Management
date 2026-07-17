@@ -21,11 +21,20 @@ export default function CalendarView({ tasks, currentMonth, setCurrentMonth, onE
 
   const getTasksForDate = (date) => {
     if (!date) return [];
+    
     // Adjust local date calculation to safe ISO string conversion
     const offset = date.getTimezoneOffset();
     const localAdjusted = new Date(date.getTime() - (offset * 60 * 1000));
     const dateStr = localAdjusted.toISOString().split('T')[0];
-    return tasks.filter(t => t.due_date === dateStr);
+
+    return tasks.filter(t => {
+      if (!t.due_date) return false;
+      
+      // Grab just the "YYYY-MM-DD" part from the backend's full ISO string
+      const taskDateStr = t.due_date.split('T')[0]; 
+      
+      return taskDateStr === dateStr;
+    });
   };
 
   const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
