@@ -155,8 +155,8 @@ GOOGLE_CLIENT_ID=google-client-id.apps.googleusercontent.com
 
 SMTP_HOST=smtp.provider.com
 SMTP_PORT=587
-SMTP_USER=your_smtp_email@example.com
-SMTP_PASS=your_smtp_password
+SMTP_USER=smtp_email@example.com
+SMTP_PASS=smtp_password (it will a generated password not your gmail original password , rememeber it)
 MAIL_FROM="Task Manager" <noreply@taskmanager.com>
 ```
 
