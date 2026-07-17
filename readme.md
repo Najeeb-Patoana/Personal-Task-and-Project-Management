@@ -98,7 +98,7 @@ Make sure the following are installed before running the project:
 ## 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/taskmanager.git
+git clone https://github.com/Najeeb-Patoana/Personal-Task-and-Project-Management
 cd taskmanager
 ```
 
@@ -142,22 +142,20 @@ npm install
 Create a `.env` file:
 
 ```env
-# Database
 PGUSER=postgres
 PGHOST=localhost
-PGPASSWORD=your_db_password
+PGPASSWORD=db_password
 PGDATABASE=taskmanager
 PGPORT=5432
 
-# Security
-JWT_SECRET=your_super_secret_access_key
-JWT_REFRESH_SECRET=your_super_secret_refresh_key
+JWT_SECRET=secret_access_key
+JWT_REFRESH_SECRET=secret_refresh_key
 
 # Google OAuth
-GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_ID=google-client-id.apps.googleusercontent.com
 
 # Email Notifications
-SMTP_HOST=smtp.your-provider.com
+SMTP_HOST=smtp.provider.com
 SMTP_PORT=587
 SMTP_USER=your_smtp_email@example.com
 SMTP_PASS=your_smtp_password
@@ -190,7 +188,7 @@ Create a `.env` file:
 
 ```env
 VITE_API_URL=http://localhost:3000
-VITE_GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+VITE_GOOGLE_CLIENT_ID=google-client-id.apps.googleusercontent.com
 ```
 
 Start the development server:
