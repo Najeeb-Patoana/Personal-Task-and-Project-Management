@@ -17,13 +17,19 @@ function App() {
   };
 
   const handleLogout = async () => {
-    if (token) {
+    const refreshToken = localStorage.getItem('refresh_token');
+    
+    if (token && refreshToken) {
       try { 
-        // Ping our Express backend to handle any server-side logout logic if needed
-        await api('/api/auth/logout', { method: 'POST' }, token); 
+        // Ping our Express backend to delete the refresh token from the database
+        await api('/api/auth/logout', { 
+          method: 'POST',
+          body: JSON.stringify({ refreshToken })
+        }, token); 
       } catch (_) {}
     }
-    // Clear local auth state
+    
+    // Clear local auth state regardless of server response
     localStorage.removeItem('token');
     localStorage.removeItem('refresh_token');
     setToken(null);

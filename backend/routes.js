@@ -7,13 +7,14 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const pool = require('./db');
+
 // Ensure uploads directory exists
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir);
 }
 
-// Set up Multer for local disk storage (Replaces Supabase Storage)
+// Set up Multer for local disk storage
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, 'uploads/');
@@ -25,6 +26,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
@@ -42,10 +44,8 @@ const router = express.Router();
 // MIDDLEWARE
 // ==========================================
 const auth = (req, res, next) => {
-  console.time('Auth');
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) {
-    console.timeEnd('Auth');
     return res.status(401).json({ error: 'Authorization header missing' });
   }
 
@@ -54,10 +54,8 @@ const auth = (req, res, next) => {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded; // Contains id from payload
     req.token = token;
-    console.timeEnd('Auth');
     next();
   } catch (err) {
-    console.timeEnd('Auth');
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 };
@@ -107,11 +105,18 @@ router.post('/api/auth/login', async (req, res) => {
     const validPassword = await bcrypt.compare(password, user.password_hash);
     if (!validPassword) return res.status(401).json({ error: 'Invalid email or password' });
 
-    const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '7d' });
+    // Generate Tokens
+    const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '30m' }); // 30 minutes
+    const refreshToken = jwt.sign({ id: user.id }, JWT_REFRESH_SECRET, { expiresIn: '7d' }); // 7 days
+
+    // Store refresh token in DB
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    await pool.query('INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)', [user.id, refreshToken, expiresAt]);
+
     res.json({
       user: { id: user.id, email: user.email },
       token: token,
-      refresh_token: null, // Refresh tokens require a more complex local setup, omitted for standard JWT
+      refresh_token: refreshToken,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -121,16 +126,11 @@ router.post('/api/auth/login', async (req, res) => {
 const { OAuth2Client } = require('google-auth-library');
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-// ==========================================
-// GOOGLE AUTH ENDPOINT
-// ==========================================
 router.post('/api/auth/google', async (req, res) => {
   const { credential } = req.body;
-  
   if (!credential) return res.status(400).json({ error: 'Missing Google credential' });
 
   try {
-    // 1. Verify the token with Google
     const ticket = await googleClient.verifyIdToken({
       idToken: credential,
       audience: process.env.GOOGLE_CLIENT_ID,
@@ -138,40 +138,37 @@ router.post('/api/auth/google', async (req, res) => {
     
     const { email, name } = ticket.getPayload();
 
-    // 2. Check if the user already exists in your local database
     const userRes = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
     let user = userRes.rows[0];
 
-    // 3. If they don't exist, create them automatically
     if (!user) {
       await pool.query('BEGIN');
-      
-      // Notice: password_hash is left null because they authenticate via Google
       const newUserRes = await pool.query(
         'INSERT INTO users (email) VALUES ($1) RETURNING id, email',
         [email]
       );
       user = newUserRes.rows[0];
-
-      // Create their profile
       await pool.query(
         'INSERT INTO profiles (id, name) VALUES ($1, $2)',
         [user.id, name]
       );
-      
       await pool.query('COMMIT');
     }
 
-    // 4. Generate your local JWT token
-    const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '7d' });
+    // Generate Tokens
+    const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '30m' });
+    const refreshToken = jwt.sign({ id: user.id }, JWT_REFRESH_SECRET, { expiresIn: '7d' });
+
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    await pool.query('INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)', [user.id, refreshToken, expiresAt]);
     
     res.json({ 
       token, 
+      refresh_token: refreshToken,
       user: { id: user.id, email: user.email } 
     });
 
   } catch (err) {
-    // If the transaction fails, roll it back
     if (err.message && !err.message.includes('Token')) {
        await pool.query('ROLLBACK');
     }
@@ -180,9 +177,36 @@ router.post('/api/auth/google', async (req, res) => {
   }
 });
 
+// Refresh Token Endpoint
+router.post('/api/auth/refresh', async (req, res) => {
+  const { refreshToken } = req.body;
+  if (!refreshToken) return res.status(401).json({ error: 'Refresh token required' });
 
-router.post('/api/auth/logout', auth, async (req, res) => {
-  // Stateless JWT: The client deletes the token to log out.
+  try {
+    // 1. Verify DB existence (ensures it wasn't revoked/logged out)
+    const dbRes = await pool.query('SELECT * FROM refresh_tokens WHERE token = $1', [refreshToken]);
+    if (dbRes.rows.length === 0) return res.status(403).json({ error: 'Invalid or revoked refresh token' });
+
+    // 2. Verify JWT signature
+    const decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET);
+    
+    // 3. Issue new short-lived access token
+    const newAccessToken = jwt.sign({ id: decoded.id }, JWT_SECRET, { expiresIn: '30m' });
+    
+    res.json({ token: newAccessToken });
+  } catch (err) {
+    // If expired, delete it from DB to clean up
+    await pool.query('DELETE FROM refresh_tokens WHERE token = $1', [refreshToken]);
+    res.status(403).json({ error: 'Refresh token expired' });
+  }
+});
+
+router.post('/api/auth/logout', async (req, res) => {
+  const { refreshToken } = req.body;
+  if (refreshToken) {
+    // Revoke the refresh token so it can't be used again
+    await pool.query('DELETE FROM refresh_tokens WHERE token = $1', [refreshToken]);
+  }
   res.json({ message: 'Logged out successfully' });
 });
 
@@ -230,12 +254,9 @@ router.put('/api/profile', auth, async (req, res) => {
 // ==========================================
 router.post('/api/upload', auth, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-
-  // Construct the local URL pointing to the static folder mapped in server.js
   const protocol = req.protocol;
   const host = req.get('host');
   const publicUrl = `${protocol}://${host}/uploads/${req.file.filename}`;
-
   res.json({ url: publicUrl });
 });
 
@@ -294,14 +315,11 @@ router.delete('/api/projects/:id', auth, async (req, res) => {
 // TASKS ROUTES
 // ==========================================
 router.get('/api/projects/:projectId/tasks', auth, async (req, res) => {
-  console.time('Total Request');
   const { search, status, priority, sort, page = 1, limit = 10 } = req.query;
   const pageNum = parseInt(page);
   const limitNum = parseInt(limit);
   const offset = (pageNum - 1) * limitNum;
 
-  console.time('Build Query');
-  // Dynamic SQL query builder to replicate Supabase's filtering
   let queryStr = 'SELECT *, count(*) OVER() as full_count FROM tasks WHERE project_id = $1 AND user_id = $2';
   const values = [req.params.projectId, req.user.id];
   let paramIndex = 3;
@@ -322,7 +340,6 @@ router.get('/api/projects/:projectId/tasks', auth, async (req, res) => {
     paramIndex++;
   }
 
-  // Sorting
   if (sort === 'due_date' || !sort) {
     queryStr += ' ORDER BY due_date ASC NULLS LAST, created_at ASC';
   } else if (sort === 'created_desc') {
@@ -331,25 +348,18 @@ router.get('/api/projects/:projectId/tasks', auth, async (req, res) => {
     queryStr += ' ORDER BY due_date ASC NULLS LAST, created_at ASC';
   }
 
-  // Pagination
   queryStr += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
   values.push(limitNum, offset);
-  console.timeEnd('Build Query');
 
   try {
-    console.time('Database Query');
     const result = await pool.query(queryStr, values);
-    console.timeEnd('Database Query');
-
     const total = result.rows.length > 0 ? parseInt(result.rows[0].full_count) : 0;
     
-    // Remove the full_count from each row object before sending response
     const tasks = result.rows.map(row => {
       const { full_count, ...task } = row;
       return task;
     });
 
-    console.time('Response');
     res.json({
       tasks: tasks,
       total: total,
@@ -357,10 +367,7 @@ router.get('/api/projects/:projectId/tasks', auth, async (req, res) => {
       limit: limitNum,
       totalPages: Math.ceil(total / limitNum),
     });
-    console.timeEnd('Response');
-    console.timeEnd('Total Request');
   } catch (err) {
-    console.timeEnd('Total Request');
     res.status(500).json({ error: err.message });
   }
 });
@@ -398,6 +405,7 @@ router.post('/api/projects/:projectId/tasks', auth, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 router.post('/api/projects/:projectId/tasks/bulk', auth, async (req, res) => {
   const { tasks } = req.body;
   if (!Array.isArray(tasks) || tasks.length === 0) {
@@ -405,7 +413,6 @@ router.post('/api/projects/:projectId/tasks/bulk', auth, async (req, res) => {
   }
 
   try {
-    // 1. Check current task count to enforce the 100 limit
     const countRes = await pool.query('SELECT COUNT(*) FROM tasks WHERE user_id = $1', [req.user.id]);
     const taskCount = parseInt(countRes.rows[0].count);
 
@@ -424,8 +431,6 @@ router.post('/api/projects/:projectId/tasks/bulk', auth, async (req, res) => {
       return res.status(403).json({ error: `You already have ${taskCount} tasks. Adding ${tasks.length} more exceeds your free limit of 100 tasks.` });
     }
 
-    // 2. Generate a parameterized bulk insert query
-    // This allows PostgreSQL to insert multiple rows in a single query efficiently
     const values = [];
     const queryPlaceholders = [];
     let paramIndex = 1;
@@ -490,7 +495,6 @@ router.get('/api/dashboard', auth, async (req, res) => {
   const uid = req.user.id;
 
   try {
-    // Execute all dashboard count queries concurrently
     const [projects, total, completed, pending, overdue] = await Promise.all([
       pool.query('SELECT COUNT(*) FROM projects WHERE user_id = $1', [uid]),
       pool.query('SELECT COUNT(*) FROM tasks WHERE user_id = $1', [uid]),

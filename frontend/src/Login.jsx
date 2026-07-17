@@ -35,6 +35,10 @@ function Login({ onLogin }) {
         setEmail('');
         setPassword('');
       } else if (data.token) {
+        // Save refresh token if it exists
+        if (data.refresh_token) {
+          localStorage.setItem('refresh_token', data.refresh_token);
+        }
         onLogin(data.token);
       }
     } catch (err) {
@@ -58,6 +62,10 @@ function Login({ onLogin }) {
       if (!res.ok) throw new Error(data.error || 'Google auth failed');
       
       if (data.token) {
+        // Save refresh token if it exists
+        if (data.refresh_token) {
+          localStorage.setItem('refresh_token', data.refresh_token);
+        }
         onLogin(data.token);
       }
     } catch (err) {

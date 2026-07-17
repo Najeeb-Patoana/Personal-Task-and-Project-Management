@@ -11,14 +11,39 @@ export async function api(endpoint, options = {}, token = null) {
     delete options.headers;
   }
 
-  const res = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
+  let res = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
 
-  // Token expired or invalid — force logout
+
   if (res.status === 401) {
-    localStorage.removeItem('token');
-    localStorage.removeItem('refresh_token');
-    window.location.reload();
-    return null;
+    const refreshToken = localStorage.getItem('refresh_token');
+    
+    if (refreshToken) {
+      const refreshRes = await fetch(`${API_URL}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken })
+      });
+
+      if (refreshRes.ok) {
+        const { token: newToken } = await refreshRes.json();
+        
+        localStorage.setItem('token', newToken);
+      
+        headers['Authorization'] = `Bearer ${newToken}`;
+        res = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
+      } else {
+        localStorage.removeItem('token');
+        localStorage.removeItem('refresh_token');
+        window.location.reload();
+        return null;
+      }
+    } else {
+       
+      localStorage.removeItem('token');
+      localStorage.removeItem('refresh_token');
+      window.location.reload();
+      return null;
+    }
   }
 
   const data = await res.json();
