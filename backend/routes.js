@@ -105,9 +105,8 @@ router.post('/api/auth/login', async (req, res) => {
     const validPassword = await bcrypt.compare(password, user.password_hash);
     if (!validPassword) return res.status(401).json({ error: 'Invalid email or password' });
 
-    // Generate Tokens
-    const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '30m' }); // 30 minutes
-    const refreshToken = jwt.sign({ id: user.id }, JWT_REFRESH_SECRET, { expiresIn: '7d' }); // 7 days
+    const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '30m' });
+    const refreshToken = jwt.sign({ id: user.id }, JWT_REFRESH_SECRET, { expiresIn: '7d' }); 
 
     // Store refresh token in DB
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
