@@ -1,14 +1,35 @@
 const express = require('express');
-const { supabase } = require('./db');
+const { Pool } = require('pg');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
+const pool = require('./db');
+// Ensure uploads directory exists
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);
+}
 
-const upload = multer({ storage: multer.memoryStorage() });
+// Set up Multer for local disk storage (Replaces Supabase Storage)
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/');
+  },
+  filename: function (req, file, cb) {
+    cb(null, `${req.user.id}_${Date.now()}_${file.originalname.replace(/[^a-zA-Z0-9.]/g, '_')}`);
+  }
+});
+const upload = multer({ storage: storage });
+
+const JWT_SECRET = process.env.JWT_SECRET;
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: process.env.SMTP_PORT,
-  secure: false, // true for 465, false for other ports
+  secure: false, 
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
@@ -17,411 +38,477 @@ const transporter = nodemailer.createTransport({
 
 const router = express.Router();
 
-// async function auth(req, res, next) {
-//   const header = req.headers.authorization;
-//   if (!header || !header.startsWith('Bearer ')) {
-//     return res.status(401).json({ error: 'Authorization header missing' });
-//   }
-//   const token = header.split(' ')[1];
-//   const { data, error } = await supabase.auth.getUser(token);
-//   if (error || !data.user) return res.status(401).json({ error: 'Invalid or expired token' });
-//   req.user = data.user;
-//   req.token = token;
-//   next();
-// }
-async function auth(req, res, next) {
+// ==========================================
+// MIDDLEWARE
+// ==========================================
+const auth = (req, res, next) => {
   console.time('Auth');
-
   const header = req.headers.authorization;
-
   if (!header || !header.startsWith('Bearer ')) {
     console.timeEnd('Auth');
     return res.status(401).json({ error: 'Authorization header missing' });
   }
 
   const token = header.split(' ')[1];
-
-  const { data, error } = await supabase.auth.getUser(token);
-
-  console.timeEnd('Auth');
-
-  if (error || !data.user) {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded; // Contains id from payload
+    req.token = token;
+    console.timeEnd('Auth');
+    next();
+  } catch (err) {
+    console.timeEnd('Auth');
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
+};
 
-  req.user = data.user;
-  req.token = token;
-
-  next();
-}
-
+// ==========================================
+// AUTH ROUTES
+// ==========================================
 router.post('/api/auth/register', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
 
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      emailRedirectTo: process.env.FRONTEND_URL || 'http://localhost:5173',
-    },
-  });
-  if (error) return res.status(400).json({ error: error.message });
+  try {
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
 
-  res.status(201).json({
-    message: 'Account created! Please check your email to verify your account before logging in.',
-    user: { id: data.user.id, email: data.user.email },
-  });
+    await pool.query('BEGIN');
+    const userRes = await pool.query(
+      'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email',
+      [email, passwordHash]
+    );
+    const newUser = userRes.rows[0];
+
+    await pool.query('INSERT INTO profiles (id, name) VALUES ($1, $2)', [newUser.id, email.split('@')[0]]);
+    await pool.query('COMMIT');
+
+    res.status(201).json({
+      message: 'Account created! Please log in.',
+      user: newUser,
+    });
+  } catch (err) {
+    await pool.query('ROLLBACK');
+    res.status(400).json({ error: 'Email already exists or invalid request' });
+  }
 });
 
 router.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
 
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) return res.status(401).json({ error: error.message });
+  try {
+    const userRes = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (userRes.rows.length === 0) return res.status(401).json({ error: 'Invalid email or password' });
 
-  res.json({
-    user: data.user,
-    token: data.session.access_token,
-    refresh_token: data.session.refresh_token,
-  });
+    const user = userRes.rows[0];
+    if (!user.password_hash) return res.status(401).json({ error: 'Please set a new password to migrate your account.' });
+
+    const validPassword = await bcrypt.compare(password, user.password_hash);
+    if (!validPassword) return res.status(401).json({ error: 'Invalid email or password' });
+
+    const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({
+      user: { id: user.id, email: user.email },
+      token: token,
+      refresh_token: null, // Refresh tokens require a more complex local setup, omitted for standard JWT
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.post('/api/auth/logout', auth, async (req, res) => {
+const { OAuth2Client } = require('google-auth-library');
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-  await supabase.auth.admin.signOut(req.token);
+// ==========================================
+// GOOGLE AUTH ENDPOINT
+// ==========================================
+router.post('/api/auth/google', async (req, res) => {
+  const { credential } = req.body;
+  
+  if (!credential) return res.status(400).json({ error: 'Missing Google credential' });
+
+  try {
+    // 1. Verify the token with Google
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    
+    const { email, name } = ticket.getPayload();
+
+    // 2. Check if the user already exists in your local database
+    const userRes = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    let user = userRes.rows[0];
+
+    // 3. If they don't exist, create them automatically
+    if (!user) {
+      await pool.query('BEGIN');
+      
+      // Notice: password_hash is left null because they authenticate via Google
+      const newUserRes = await pool.query(
+        'INSERT INTO users (email) VALUES ($1) RETURNING id, email',
+        [email]
+      );
+      user = newUserRes.rows[0];
+
+      // Create their profile
+      await pool.query(
+        'INSERT INTO profiles (id, name) VALUES ($1, $2)',
+        [user.id, name]
+      );
+      
+      await pool.query('COMMIT');
+    }
+
+    // 4. Generate your local JWT token
+    const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '7d' });
+    
+    res.json({ 
+      token, 
+      user: { id: user.id, email: user.email } 
+    });
+
+  } catch (err) {
+    // If the transaction fails, roll it back
+    if (err.message && !err.message.includes('Token')) {
+       await pool.query('ROLLBACK');
+    }
+    console.error(err);
+    res.status(401).json({ error: 'Google authentication failed' });
+  }
+});
+
+
+router.post('/api/auth/logout', auth, async (req, res) => {
+  // Stateless JWT: The client deletes the token to log out.
   res.json({ message: 'Logged out successfully' });
 });
 
+// ==========================================
+// PROFILE ROUTES
+// ==========================================
 router.get('/api/profile', auth, async (req, res) => {
-  res.json({
-    id: req.user.id,
-    email: req.user.email,
-    name: req.user.user_metadata?.full_name || req.user.user_metadata?.name || '',
-  });
+  try {
+    const result = await pool.query(
+      'SELECT u.email, p.name FROM users u JOIN profiles p ON u.id = p.id WHERE u.id = $1',
+      [req.user.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Profile not found' });
+    
+    res.json({
+      id: req.user.id,
+      email: result.rows[0].email,
+      name: result.rows[0].name || '',
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.put('/api/profile', auth, async (req, res) => {
   const { name } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
 
-  const { data, error } = await supabase.auth.admin.updateUserById(req.user.id, {
-    user_metadata: { full_name: name.trim() },
-  });
-  if (error) return res.status(500).json({ error: error.message });
-
-  res.json({
-    id: data.user.id,
-    email: data.user.email,
-    name: data.user.user_metadata?.full_name || '',
-  });
+  try {
+    await pool.query('UPDATE profiles SET name = $1 WHERE id = $2', [name.trim(), req.user.id]);
+    
+    const result = await pool.query('SELECT email FROM users WHERE id = $1', [req.user.id]);
+    res.json({
+      id: req.user.id,
+      email: result.rows[0].email,
+      name: name.trim(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
+// ==========================================
+// FILE UPLOAD (LOCAL)
+// ==========================================
 router.post('/api/upload', auth, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-  const file = req.file;
-  const fileName = `${req.user.id}/${Date.now()}_${file.originalname.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+  // Construct the local URL pointing to the static folder mapped in server.js
+  const protocol = req.protocol;
+  const host = req.get('host');
+  const publicUrl = `${protocol}://${host}/uploads/${req.file.filename}`;
 
-  const { data, error } = await supabase.storage
-    .from('task-attachments')
-    .upload(fileName, file.buffer, {
-      contentType: file.mimetype,
-    });
-
-  if (error) {
-    return res.status(500).json({ error: error.message });
-  }
-
-  const { data: publicUrlData } = supabase.storage
-    .from('task-attachments')
-    .getPublicUrl(fileName);
-
-  res.json({ url: publicUrlData.publicUrl });
+  res.json({ url: publicUrl });
 });
 
+// ==========================================
+// PROJECTS ROUTES
+// ==========================================
 router.get('/api/projects', auth, async (req, res) => {
-  const { data, error } = await supabase
-    .from('projects')
-    .select('*')
-    .eq('user_id', req.user.id)
-    .order('created_at', { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  try {
+    const result = await pool.query('SELECT * FROM projects WHERE user_id = $1 ORDER BY created_at DESC', [req.user.id]);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.post('/api/projects', auth, async (req, res) => {
   const { name, description, status } = req.body;
   if (!name) return res.status(400).json({ error: 'Project name is required' });
 
-  const { data, error } = await supabase
-    .from('projects')
-    .insert({ user_id: req.user.id, name, description, status: status || 'Active' })
-    .select()
-    .single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.status(201).json(data);
+  try {
+    const result = await pool.query(
+      'INSERT INTO projects (user_id, name, description, status) VALUES ($1, $2, $3, $4) RETURNING *',
+      [req.user.id, name, description, status || 'Active']
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.put('/api/projects/:id', auth, async (req, res) => {
   const { name, description, status } = req.body;
-  const { data, error } = await supabase
-    .from('projects')
-    .update({ name, description, status })
-    .eq('id', req.params.id)
-    .eq('user_id', req.user.id)
-    .select()
-    .single();
-  if (error) return res.status(500).json({ error: error.message });
-  if (!data) return res.status(404).json({ error: 'Project not found' });
-  res.json(data);
+  try {
+    const result = await pool.query(
+      'UPDATE projects SET name = $1, description = $2, status = $3 WHERE id = $4 AND user_id = $5 RETURNING *',
+      [name, description, status, req.params.id, req.user.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Project not found' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.delete('/api/projects/:id', auth, async (req, res) => {
-  const { error } = await supabase
-    .from('projects')
-    .delete()
-    .eq('id', req.params.id)
-    .eq('user_id', req.user.id);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ message: 'Project deleted successfully' });
+  try {
+    const result = await pool.query('DELETE FROM projects WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Project not found' });
+    res.json({ message: 'Project deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// router.get('/api/projects/:projectId/tasks', auth, async (req, res) => {
-//   const { search, status, priority, sort, page = 1, limit = 10 } = req.query;
-//   const pageNum = parseInt(page);
-//   const limitNum = parseInt(limit);
-//   const from = (pageNum - 1) * limitNum;
-
-//   let query = supabase
-//     .from('tasks')
-//     .select('*', { count: 'exact' })
-//     .eq('project_id', req.params.projectId)
-//     .eq('user_id', req.user.id);
-
-//   if (search)   query = query.ilike('title', `%${search}%`);
-//   if (status)   query = query.eq('status', status);
-//   if (priority) query = query.eq('priority', priority);
-
-//   if (sort === 'due_date' || !sort) {
-//     query = query.order('due_date', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true });
-//   } else if (sort === 'created_desc') {
-//     query = query.order('created_at', { ascending: false });
-//   } else {
-//     query = query.order('due_date', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true });
-//   }
-
-//   query = query.range(from, from + limitNum - 1);
-
-//   const { data, error, count } = await query;
-//   if (error) return res.status(500).json({ error: error.message });
-
-//   res.json({
-//     tasks: data,
-//     total: count,
-//     page: pageNum,
-//     limit: limitNum,
-//     totalPages: Math.ceil(count / limitNum),
-//   });
-// });
+// ==========================================
+// TASKS ROUTES
+// ==========================================
 router.get('/api/projects/:projectId/tasks', auth, async (req, res) => {
   console.time('Total Request');
-
   const { search, status, priority, sort, page = 1, limit = 10 } = req.query;
-
   const pageNum = parseInt(page);
   const limitNum = parseInt(limit);
-  const from = (pageNum - 1) * limitNum;
+  const offset = (pageNum - 1) * limitNum;
 
   console.time('Build Query');
-
-  let query = supabase
-    .from('tasks')
-    .select('*', { count: 'exact' })
-    .eq('project_id', req.params.projectId)
-    .eq('user_id', req.user.id);
+  // Dynamic SQL query builder to replicate Supabase's filtering
+  let queryStr = 'SELECT *, count(*) OVER() as full_count FROM tasks WHERE project_id = $1 AND user_id = $2';
+  const values = [req.params.projectId, req.user.id];
+  let paramIndex = 3;
 
   if (search) {
-    query = query.ilike('title', `%${search}%`);
+    queryStr += ` AND title ILIKE $${paramIndex}`;
+    values.push(`%${search}%`);
+    paramIndex++;
   }
-
   if (status) {
-    query = query.eq('status', status);
+    queryStr += ` AND status = $${paramIndex}`;
+    values.push(status);
+    paramIndex++;
   }
-
   if (priority) {
-    query = query.eq('priority', priority);
+    queryStr += ` AND priority = $${paramIndex}`;
+    values.push(priority);
+    paramIndex++;
   }
 
+  // Sorting
   if (sort === 'due_date' || !sort) {
-    query = query
-      .order('due_date', { ascending: true, nullsFirst: false })
-      .order('created_at', { ascending: true });
+    queryStr += ' ORDER BY due_date ASC NULLS LAST, created_at ASC';
   } else if (sort === 'created_desc') {
-    query = query.order('created_at', { ascending: false });
+    queryStr += ' ORDER BY created_at DESC';
   } else {
-    query = query
-      .order('due_date', { ascending: true, nullsFirst: false })
-      .order('created_at', { ascending: true });
+    queryStr += ' ORDER BY due_date ASC NULLS LAST, created_at ASC';
   }
 
-  query = query.range(from, from + limitNum - 1);
-
+  // Pagination
+  queryStr += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+  values.push(limitNum, offset);
   console.timeEnd('Build Query');
 
-  console.time('Database Query');
+  try {
+    console.time('Database Query');
+    const result = await pool.query(queryStr, values);
+    console.timeEnd('Database Query');
 
-  const { data, error, count } = await query;
+    const total = result.rows.length > 0 ? parseInt(result.rows[0].full_count) : 0;
+    
+    // Remove the full_count from each row object before sending response
+    const tasks = result.rows.map(row => {
+      const { full_count, ...task } = row;
+      return task;
+    });
 
-  console.timeEnd('Database Query');
-
-  if (error) {
+    console.time('Response');
+    res.json({
+      tasks: tasks,
+      total: total,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(total / limitNum),
+    });
+    console.timeEnd('Response');
     console.timeEnd('Total Request');
-    return res.status(500).json({ error: error.message });
+  } catch (err) {
+    console.timeEnd('Total Request');
+    res.status(500).json({ error: err.message });
   }
-
-  console.time('Response');
-
-  res.json({
-    tasks: data,
-    total: count,
-    page: pageNum,
-    limit: limitNum,
-    totalPages: Math.ceil(count / limitNum),
-  });
-
-  console.timeEnd('Response');
-  console.timeEnd('Total Request');
 });
+
 router.post('/api/projects/:projectId/tasks', auth, async (req, res) => {
   const { title, description, priority, status, due_date, attachment_url } = req.body;
   if (!title) return res.status(400).json({ error: 'Task title is required' });
 
-  const { count, error: countError } = await supabase
-    .from('tasks')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', req.user.id);
+  try {
+    const countRes = await pool.query('SELECT COUNT(*) FROM tasks WHERE user_id = $1', [req.user.id]);
+    const taskCount = parseInt(countRes.rows[0].count);
 
-  if (countError) return res.status(500).json({ error: countError.message });
-
-  if (count >= 100) {
-    try {
-      await transporter.sendMail({
-        from: process.env.MAIL_FROM || '"Task Manager" <noreply@taskmanager.com>',
-        to: req.user.email,
-        subject: 'Task Limit Exceeded',
-        text: `You currently have ${count} tasks. You can create up to 100 tasks for free. To create more tasks, please upgrade to a paid plan.`,
-      });
-    } catch (emailError) {
-      console.error('Failed to send email:', emailError);
+    if (taskCount >= 100) {
+      try {
+        const userRes = await pool.query('SELECT email FROM users WHERE id = $1', [req.user.id]);
+        await transporter.sendMail({
+          from: process.env.MAIL_FROM || '"Task Manager" <noreply@taskmanager.com>',
+          to: userRes.rows[0].email,
+          subject: 'Task Limit Exceeded',
+          text: `You currently have ${taskCount} tasks. You can create up to 100 tasks for free. To create more tasks, please upgrade to a paid plan.`,
+        });
+      } catch (emailError) {
+        console.error('Failed to send email:', emailError);
+      }
+      return res.status(403).json({ error: `You already have ${taskCount} tasks. You can create up to 100 tasks for free.` });
     }
-    return res.status(403).json({ error: `You already have ${count} tasks. You can create up to 100 tasks for free. To create more, please upgrade to a paid plan.` });
+
+    const result = await pool.query(
+      `INSERT INTO tasks (project_id, user_id, title, description, priority, status, due_date, attachment_url) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [req.params.projectId, req.user.id, title, description, priority || 'Medium', status || 'Todo', due_date || null, attachment_url || null]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-
-  const { data, error } = await supabase
-    .from('tasks')
-    .insert({
-      project_id: req.params.projectId,
-      user_id: req.user.id,
-      title, description,
-      priority: priority || 'Medium',
-      status: status || 'Todo',
-      due_date: due_date || null,
-      attachment_url: attachment_url || null,
-    })
-    .select()
-    .single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.status(201).json(data);
 });
-
 router.post('/api/projects/:projectId/tasks/bulk', auth, async (req, res) => {
   const { tasks } = req.body;
   if (!Array.isArray(tasks) || tasks.length === 0) {
     return res.status(400).json({ error: 'An array of tasks is required' });
   }
 
-  const { count, error: countError } = await supabase
-    .from('tasks')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', req.user.id);
+  try {
+    // 1. Check current task count to enforce the 100 limit
+    const countRes = await pool.query('SELECT COUNT(*) FROM tasks WHERE user_id = $1', [req.user.id]);
+    const taskCount = parseInt(countRes.rows[0].count);
 
-  if (countError) return res.status(500).json({ error: countError.message });
-
-  if (count + tasks.length > 100) {
-    try {
-      await transporter.sendMail({
-        from: process.env.MAIL_FROM || '"Task Manager" <noreply@taskmanager.com>',
-        to: req.user.email,
-        subject: 'Task Limit Exceeded',
-        text: `You currently have ${count} tasks. Adding ${tasks.length} more would exceed your free limit of 100 tasks. To create more tasks, please upgrade to a paid plan.`,
-      });
-    } catch (emailError) {
-      console.error('Failed to send email:', emailError);
+    if (taskCount + tasks.length > 100) {
+      try {
+        const userRes = await pool.query('SELECT email FROM users WHERE id = $1', [req.user.id]);
+        await transporter.sendMail({
+          from: process.env.MAIL_FROM || '"Task Manager" <noreply@taskmanager.com>',
+          to: userRes.rows[0].email,
+          subject: 'Task Limit Exceeded',
+          text: `You currently have ${taskCount} tasks. Adding ${tasks.length} more would exceed your free limit of 100 tasks. To create more tasks, please upgrade to a paid plan.`,
+        });
+      } catch (emailError) {
+        console.error('Failed to send email:', emailError);
+      }
+      return res.status(403).json({ error: `You already have ${taskCount} tasks. Adding ${tasks.length} more exceeds your free limit of 100 tasks.` });
     }
-    return res.status(403).json({ error: `You already have ${count} tasks. Adding ${tasks.length} more would exceed your free limit of 100 tasks. To create more, please upgrade to a paid plan.` });
+
+    // 2. Generate a parameterized bulk insert query
+    // This allows PostgreSQL to insert multiple rows in a single query efficiently
+    const values = [];
+    const queryPlaceholders = [];
+    let paramIndex = 1;
+
+    tasks.forEach(task => {
+      queryPlaceholders.push(`($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`);
+      values.push(
+        req.params.projectId,
+        req.user.id,
+        task.title,
+        task.description || '',
+        task.priority || 'Medium',
+        task.status || 'Todo',
+        task.due_date || null,
+        task.attachment_url || null
+      );
+    });
+
+    const queryStr = `
+      INSERT INTO tasks (project_id, user_id, title, description, priority, status, due_date, attachment_url) 
+      VALUES ${queryPlaceholders.join(', ')} 
+      RETURNING *
+    `;
+
+    const result = await pool.query(queryStr, values);
+    res.status(201).json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-
-  const tasksToInsert = tasks.map(t => ({
-    project_id: req.params.projectId,
-    user_id: req.user.id,
-    title: t.title,
-    description: t.description,
-    priority: t.priority || 'Medium',
-    status: t.status || 'Todo',
-    due_date: t.due_date || null,
-    attachment_url: t.attachment_url || null,
-  }));
-
-  const { data, error } = await supabase.from('tasks').insert(tasksToInsert).select();
-  if (error) return res.status(500).json({ error: error.message });
-  res.status(201).json(data);
 });
 
 router.put('/api/tasks/:id', auth, async (req, res) => {
   const { title, description, priority, status, due_date, attachment_url } = req.body;
-  const { data, error } = await supabase
-    .from('tasks')
-    .update({ title, description, priority, status, due_date, attachment_url })
-    .eq('id', req.params.id)
-    .eq('user_id', req.user.id)
-    .select()
-    .single();
-  if (error) return res.status(500).json({ error: error.message });
-  if (!data) return res.status(404).json({ error: 'Task not found' });
-  res.json(data);
+  try {
+    const result = await pool.query(
+      `UPDATE tasks SET title = $1, description = $2, priority = $3, status = $4, due_date = $5, attachment_url = $6 
+       WHERE id = $7 AND user_id = $8 RETURNING *`,
+      [title, description, priority, status, due_date, attachment_url, req.params.id, req.user.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Task not found' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.delete('/api/tasks/:id', auth, async (req, res) => {
-  const { error } = await supabase
-    .from('tasks')
-    .delete()
-    .eq('id', req.params.id)
-    .eq('user_id', req.user.id);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ message: 'Task deleted successfully' });
+  try {
+    const result = await pool.query('DELETE FROM tasks WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Task not found' });
+    res.json({ message: 'Task deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
+// ==========================================
+// DASHBOARD ROUTE
+// ==========================================
 router.get('/api/dashboard', auth, async (req, res) => {
   const today = new Date().toISOString().split('T')[0];
   const uid = req.user.id;
 
-  const [projects, total, completed, pending, overdue] = await Promise.all([
-    supabase.from('projects').select('*', { count: 'exact', head: true }).eq('user_id', uid),
-    supabase.from('tasks').select('*', { count: 'exact', head: true }).eq('user_id', uid),
-    supabase.from('tasks').select('*', { count: 'exact', head: true }).eq('user_id', uid).eq('status', 'Completed'),
-    supabase.from('tasks').select('*', { count: 'exact', head: true }).eq('user_id', uid).neq('status', 'Completed'),
-    supabase.from('tasks').select('*', { count: 'exact', head: true }).eq('user_id', uid).neq('status', 'Completed').lt('due_date', today),
-  ]);
+  try {
+    // Execute all dashboard count queries concurrently
+    const [projects, total, completed, pending, overdue] = await Promise.all([
+      pool.query('SELECT COUNT(*) FROM projects WHERE user_id = $1', [uid]),
+      pool.query('SELECT COUNT(*) FROM tasks WHERE user_id = $1', [uid]),
+      pool.query("SELECT COUNT(*) FROM tasks WHERE user_id = $1 AND status = 'Completed'", [uid]),
+      pool.query("SELECT COUNT(*) FROM tasks WHERE user_id = $1 AND status != 'Completed'", [uid]),
+      pool.query("SELECT COUNT(*) FROM tasks WHERE user_id = $1 AND status != 'Completed' AND due_date < $2", [uid, today])
+    ]);
 
-  res.json({
-    totalProjects:  projects.count  || 0,
-    totalTasks:     total.count     || 0,
-    completedTasks: completed.count || 0,
-    pendingTasks:   pending.count   || 0,
-    overdueTasks:   overdue.count   || 0,
-  });
+    res.json({
+      totalProjects: parseInt(projects.rows[0].count) || 0,
+      totalTasks: parseInt(total.rows[0].count) || 0,
+      completedTasks: parseInt(completed.rows[0].count) || 0,
+      pendingTasks: parseInt(pending.rows[0].count) || 0,
+      overdueTasks: parseInt(overdue.rows[0].count) || 0,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;
