@@ -151,10 +151,8 @@ PGPORT=5432
 JWT_SECRET=secret_access_key
 JWT_REFRESH_SECRET=secret_refresh_key
 
-# Google OAuth
 GOOGLE_CLIENT_ID=google-client-id.apps.googleusercontent.com
 
-# Email Notifications
 SMTP_HOST=smtp.provider.com
 SMTP_PORT=587
 SMTP_USER=your_smtp_email@example.com
