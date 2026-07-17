@@ -77,7 +77,7 @@ export default function CalendarView({ tasks, currentMonth, setCurrentMonth, onE
             return (
               <div 
                 key={`empty-${i}`} 
-                className="bg-[#14141a] min-h-[120px] opacity-20 cursor-not-allowed"
+                className="bg-[#14141a] min-h-30 opacity-20 cursor-not-allowed"
               />
             );
           }
@@ -88,7 +88,7 @@ export default function CalendarView({ tasks, currentMonth, setCurrentMonth, onE
           return (
             <div 
               key={`day-${i}`} 
-              className={`bg-[#111115] min-h-[120px] p-2 flex flex-col justify-between border-t border-l border-[#2d2d38] transition-all hover:bg-[#1a1a24] relative group ${
+              className={`bg-[#111115] min-h-[30] p-2 flex flex-col justify-between border-t border-l border-[#2d2d38] transition-all hover:bg-[#1a1a24] relative group ${
                 isToday ? 'bg-[#7b68ee]/5 border-[#7b68ee]/30' : ''
               }`}
             >
@@ -105,7 +105,7 @@ export default function CalendarView({ tasks, currentMonth, setCurrentMonth, onE
 
               {/* Day Tasks Container */}
               <div 
-                className="flex flex-col gap-1.5 overflow-y-auto max-h-[80px] flex-1 pr-0.5" 
+                className="flex flex-col gap-1.5 overflow-y-auto max-h-[20] flex-1 pr-0.5" 
                 style={{ scrollbarWidth: 'none' }}
               >
                 {dayTasks.map(t => {
