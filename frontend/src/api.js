@@ -1,7 +1,9 @@
 const API_URL = import.meta.env.VITE_API_URL || '';
 
 export async function api(endpoint, options = {}, token = null) {
-  const headers = {};
+  const headers = {
+    'ngrok-skip-browser-warning': 'true' // Bypasses ngrok's warning screen on GET requests
+  };
   if (!(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
